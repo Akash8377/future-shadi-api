@@ -2,10 +2,10 @@ const pool = require('../config/db');
 
 class User {
   static async create(userData) {
-    const { firstName, lastName, email, password } = userData;
+    const { firstName, lastName, email, password, religion, qualification, livingIn, birthDay, birthMonth,birthYear } = userData;
     const [result] = await pool.query(
-      'INSERT INTO users (first_name, last_name, email, password) VALUES (?, ?, ?, ?)',
-      [firstName, lastName, email, password]
+      'INSERT INTO users (first_name, last_name, email, password, dob , religion, education, country) VALUES (?, ?, ?, ?,?,?,?,?)',
+      [firstName, lastName, email, password || "", `${birthDay}-${birthMonth}-${birthYear}`,religion, qualification, livingIn]
     );
     return result.insertId;
   }

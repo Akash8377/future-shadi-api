@@ -1,7 +1,7 @@
-const User = require('../models/userModel');
-const bcrypt = require('bcryptjs');
-const jwt = require('jsonwebtoken');
-const { validationResult } = require('express-validator');
+const User = require("../models/userModel");
+const bcrypt = require("bcryptjs");
+const jwt = require("jsonwebtoken");
+const { validationResult } = require("express-validator");
 
 exports.registerProfile = async (req, res) => {
   try {
@@ -38,25 +38,34 @@ exports.registerProfile = async (req, res) => {
       profession,
       profileDescription,
       excludeFromAffiliates,
-      password
+      password = "",
     } = req.body;
 
     // Check if user exists
     const existingUser = await User.findByEmail(email);
     if (existingUser) {
-      return res.status(400).json({ message: 'User already exists' });
+      console.log("User already exists");
+      return res.status(400).json({ message: "User already exists" });
     }
-
+    const hashedPassword = "";
+    if (password !== "") {
+      const salt = await bcrypt.genSalt(10);
+      hashedPassword = await bcrypt.hash(password, salt);
+    }
     // Hash password
-    const salt = await bcrypt.genSalt(10);
-    const hashedPassword = await bcrypt.hash(password, salt);
 
     // Create user (basic info)
     const userData = {
       firstName,
       lastName,
       email,
-      password: hashedPassword
+      password: hashedPassword,
+      religion,
+      qualification,
+      livingIn,
+      birthDay,
+      birthMonth,
+      birthYear,
     };
 
     const userId = await User.create(userData);
@@ -85,14 +94,14 @@ exports.registerProfile = async (req, res) => {
       work_type: workType,
       profession,
       profile_description: profileDescription,
-      exclude_from_affiliates: excludeFromAffiliates
+      exclude_from_affiliates: excludeFromAffiliates,
     };
 
     await User.createProfile(profileData);
 
     // Create JWT token
     const token = jwt.sign({ id: userId }, process.env.JWT_SECRET, {
-      expiresIn: process.env.JWT_EXPIRE
+      expiresIn: process.env.JWT_EXPIRE,
     });
 
     res.status(201).json({
@@ -102,11 +111,11 @@ exports.registerProfile = async (req, res) => {
         id: userId,
         firstName,
         lastName,
-        email
-      }
+        email,
+      },
     });
   } catch (error) {
     console.error(error);
-    res.status(500).json({ message: 'Server error' });
+    res.status(500).json({ message: "Server error" });
   }
 };
