@@ -67,11 +67,12 @@ module.exports = {
     });
 
     // Send SMS
-    await twilioClient.messages.create({
+    const twilioRes = await twilioClient.messages.create({
       body: `Your verification code is: ${otp}`,
       from: process.env.TWILIO_PHONE_NUMBER,
       to: `+91${phone}`,
     });
+    console.log("twilioRes", twilioRes)
 
     return otp;
   },
