@@ -21,6 +21,7 @@ app.use(express.urlencoded({ extended: true }));
 // Routes
 app.use('/api/auth', authRoutes);
 app.use('/api/profile', profileRoutes);
+console.log('Profile routes:', profileRoutes); // Should show { router: [Function: router] }
 
 // Error handling middleware
 app.use(errorMiddleware);

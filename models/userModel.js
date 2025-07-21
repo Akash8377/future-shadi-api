@@ -1,20 +1,23 @@
 const pool = require('../config/db');
 
 class User {
-  static async create(userData) {
-    const { firstName, lastName, email, phone, password, religion, qualification, livingIn, birthDay, birthMonth, birthYear } = userData;
-    
-    // Construct proper MySQL DATE format (YYYY-MM-DD)
-    const dob = birthYear && birthMonth && birthDay 
-        ? `${birthYear}-${birthMonth.toString().padStart(2, '0')}-${birthDay.toString().padStart(2, '0')}`
-        : null;
+static async create(userData) {
+  const { firstName, lastName, email, phone, password, religion, qualification, livingIn, birthDay, birthMonth, birthYear } = userData;
+  
+  // Construct proper MySQL DATE format (YYYY-MM-DD)
+  const dob = birthYear && birthMonth && birthDay 
+      ? `${birthYear}-${birthMonth.toString().padStart(2, '0')}-${birthDay.toString().padStart(2, '0')}`
+      : null;
 
-    const [result] = await pool.query(
-        'INSERT INTO users (first_name, last_name, email, phone, password, dob, religion, education, country, email_verified, phone_verified) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
-        [firstName, lastName, email, phone, password || "", dob, religion, qualification, livingIn, 1, 1]
-    );
-    return result.insertId;
-  }
+  // Ensure password is hashed if provided, or empty string if not
+  const passwordToStore = password || "";
+
+  const [result] = await pool.query(
+      'INSERT INTO users (first_name, last_name, email, phone, password, dob, religion, education, country, email_verified, phone_verified) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+      [firstName, lastName, email, phone, passwordToStore, dob, religion, qualification, livingIn, 1, 1]
+  );
+  return result.insertId;
+}
 
   static async findByEmail(email) {
     const [rows] = await pool.query('SELECT * FROM users WHERE email = ?', [email]);
@@ -204,6 +207,26 @@ static async getVerificationStatus(userId) {
     [userId]
   );
   return rows[0] || null;
+}
+static async updatePasswordByEmail(email, password) {
+  const [result] = await pool.query(
+    'UPDATE users SET password = ? WHERE email = ?',
+    [password, email]
+  );
+  return result.affectedRows > 0;
+}
+
+static async updatePasswordById(userId, password) {
+  const [result] = await pool.query(
+    'UPDATE users SET password = ? WHERE id = ?',
+    [password, userId]
+  );
+  return result.affectedRows > 0;
+}
+
+static async generateRandomPassword() {
+  const crypto = require('crypto');
+  return crypto.randomBytes(4).toString('hex'); // 8 character password
 }
 }
 

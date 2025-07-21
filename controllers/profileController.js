@@ -4,6 +4,7 @@ const jwt = require("jsonwebtoken");
 const { validationResult } = require("express-validator");
 const path = require('path');
 const fs = require('fs');
+const otpService = require('../services/otpService');
 const { promisify } = require('util');
 const unlinkAsync = promisify(fs.unlink);
 
@@ -42,22 +43,19 @@ exports.registerProfile = async (req, res) => {
       workType,
       profession,
       profileDescription,
-      excludeFromAffiliates,
-      password = "",
+      excludeFromAffiliates
     } = req.body;
 
     // Check if user exists
     const existingUser = await User.findByEmail(email);
     if (existingUser) {
-      console.log("User already exists");
       return res.status(400).json({ message: "User already exists" });
     }
-    const hashedPassword = "";
-    if (password !== "") {
-      const salt = await bcrypt.genSalt(10);
-      hashedPassword = await bcrypt.hash(password, salt);
-    }
-    // Hash password
+
+    // Generate random password
+    const password = await User.generateRandomPassword();
+    const salt = await bcrypt.genSalt(10);
+    const hashedPassword = await bcrypt.hash(password, salt);
 
     // Create user (basic info)
     const userData = {
@@ -105,6 +103,9 @@ exports.registerProfile = async (req, res) => {
     };
 
     await User.createProfile(profileData);
+
+    // Send password email
+   await otpService.sendPasswordEmail(email, password);
 
     // Create JWT token
     const token = jwt.sign({ id: userId }, process.env.JWT_SECRET, {

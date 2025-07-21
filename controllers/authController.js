@@ -1,5 +1,7 @@
 const User = require('../models/userModel');
 const bcrypt = require('bcryptjs');
+const crypto = require('crypto');
+const { sendPasswordEmail } = require('../services/otpService');
 const jwt = require('jsonwebtoken');
 const { validationResult } = require('express-validator');
 
@@ -56,6 +58,24 @@ exports.register = async (req, res) => {
   } catch (error) {
     console.error(error);
     res.status(500).json({ message: 'Server error' });
+  }
+};
+exports.generateAndSendPassword = async (email) => {
+  try {
+    const crypto = require('crypto');
+    const password = crypto.randomBytes(4).toString('hex');
+    const salt = await bcrypt.genSalt(10);
+    const hashedPassword = await bcrypt.hash(password, salt);
+
+    await User.updatePasswordByEmail(email, hashedPassword);
+
+    const { sendPasswordEmail } = require('../services/otpService');
+    await sendPasswordEmail(email, password);
+
+    return true;
+  } catch (error) {
+    console.error('Password generation error:', error);
+    return false;
   }
 };
 

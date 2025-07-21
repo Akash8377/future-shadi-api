@@ -16,5 +16,20 @@ router.post('/send-email-otp', otpValidator.validateSendEmailOTP, otpController.
 router.post('/verify-email-otp', otpValidator.validateVerifyEmailOTP, otpController.verifyEmailOTP);
 router.post('/send-phone-otp', otpValidator.validateSendPhoneOTP, otpController.sendPhoneOTP);
 router.post('/verify-phone-otp', otpValidator.validateVerifyPhoneOTP, otpController.verifyPhoneOTP);
+router.post('/generate-password', async (req, res) => {
+  try {
+    const { email } = req.body;
+    const success = await authController.generateAndSendPassword(email);
+    
+    if (success) {
+      res.status(200).json({ message: 'Password generated and sent successfully' });
+    } else {
+      res.status(500).json({ message: 'Failed to generate password' });
+    }
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ message: 'Server error' });
+  }
+});
 
 module.exports = router;
