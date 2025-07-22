@@ -17,11 +17,16 @@ app.use(helmet());
 app.use(morgan('dev'));
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
+app.use('/uploads', (req, res, next) => {
+  res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
+  next();
+});
+app.use(express.static('public'));
 
 // Routes
 app.use('/api/auth', authRoutes);
 app.use('/api/profile', profileRoutes);
-console.log('Profile routes:', profileRoutes); // Should show { router: [Function: router] }
+// console.log('Profile routes:', profileRoutes); // Should show { router: [Function: router] }
 
 // Error handling middleware
 app.use(errorMiddleware);

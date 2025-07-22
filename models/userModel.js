@@ -20,12 +20,12 @@ static async create(userData) {
 }
 
   static async findByEmail(email) {
-    const [rows] = await pool.query('SELECT * FROM users WHERE email = ?', [email]);
+    const [rows] = await pool.query('SELECT users.*, profiles.* FROM users LEFT JOIN profiles ON profiles.user_id = users.id WHERE users.email = ?', [email]);
     return rows[0];
   }
 
   static async findById(id) {
-    const [rows] = await pool.query('SELECT * FROM users WHERE id = ?', [id]);
+    const [rows] = await pool.query('SELECT users.*, profiles.* FROM users LEFT JOIN profiles ON profiles.user_id = users.id WHERE users.id = ?', [id]);
     return rows[0];
   }
 
@@ -227,6 +227,64 @@ static async updatePasswordById(userId, password) {
 static async generateRandomPassword() {
   const crypto = require('crypto');
   return crypto.randomBytes(4).toString('hex'); // 8 character password
+}
+
+static async updatePartnerPreference(userId, partnerPreference, verificationData, hobbies, financialStatus, familyDetails) {
+  try {
+    // Update partner preference JSON in profiles table
+    const [result] = await pool.query(
+      'UPDATE profiles SET verificationData=?, hobbies=?, financial_status=?, family_details =?, partner_preference = ? WHERE user_id = ?',
+      [JSON.stringify(verificationData), JSON.stringify(hobbies), JSON.stringify(financialStatus), JSON.stringify(familyDetails), JSON.stringify(partnerPreference), userId]
+    );
+    console.log('Update result:', result);
+    return result.affectedRows > 0;
+  } catch (error) {
+    console.error('Error updating partner preference:', error);
+    throw error;
+  }
+}
+
+static async getPartnerPreference(userId) {
+  try {
+    const [rows] = await pool.query(`
+      SELECT 
+        partner_preference,
+        hobbies,
+        financial_status,
+        family_details
+      FROM profiles 
+      WHERE user_id = ?
+    `, [userId]);
+
+    if (!rows[0]) {
+      return null;
+    }
+
+    const preference = rows[0];
+    
+    // Parse JSON fields if they exist
+    if (preference.partner_preference) {
+      preference.partner_preference = JSON.parse(preference.partner_preference);
+    }
+    if (preference.hobbies) {
+      preference.hobbies = JSON.parse(preference.hobbies);
+    }
+    if (preference.financial_status) {
+      preference.financial_status = JSON.parse(preference.financial_status);
+    }
+    if (preference.family_details) {
+      preference.family_details = JSON.parse(preference.family_details);
+    }
+
+    return preference;
+  } catch (error) {
+    console.error('Error fetching partner preference:', error);
+    throw error;
+  }
+}
+
+static async updatePasswordByEmail(email, hashedPassword) {
+  await pool.query(`UPDATE users SET password = ? WHERE email = ?`, [hashedPassword, email])
 }
 }
 

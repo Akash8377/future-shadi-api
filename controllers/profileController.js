@@ -7,6 +7,7 @@ const fs = require('fs');
 const otpService = require('../services/otpService');
 const { promisify } = require('util');
 const unlinkAsync = promisify(fs.unlink);
+const {generateAndSendEmailOTP, verifyEmailOTP} = require('../services/otpService')
 
 exports.registerProfile = async (req, res) => {
   try {
@@ -112,15 +113,15 @@ exports.registerProfile = async (req, res) => {
       expiresIn: process.env.JWT_EXPIRE,
     });
 
+    const user = await User.findById(userId);
+    if (!user) {
+      return res.status(401).json({ message: 'Invalid credentials' });
+    }
+
     res.status(201).json({
       success: true,
       token,
-      user: {
-        id: userId,
-        firstName,
-        lastName,
-        email,
-      },
+      user,
     });
   } catch (error) {
     console.error(error);
@@ -154,7 +155,7 @@ exports.uploadProfileImage = async (req, res) => {
 
     res.status(200).json({
       success: true,
-      imageUrl: `/uploads/profiles/${imagePath}`
+      imageUrl: imagePath
     });
 
   } catch (error) {
@@ -241,27 +242,175 @@ exports.getProfile = async (req, res) => {
   }
 };
 
-// exports.uploadProfileImage = async (req, res) => {
-//   try {
-//     if (!req.file) {
-//       return res.status(400).json({ message: 'No file uploaded' });
-//     }
+exports.addPartnerPrefernce = async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const { partnerPreference } = req.body;
 
-//     const userId = req.user.id; // Assuming you have user ID from JWT
-//     const imagePath = req.file.filename;
+    // Validate partner preference data
+    if (!partnerPreference || typeof partnerPreference !== 'object') {
+      return res.status(400).json({ 
+        success: false,
+        message: 'Invalid partner preference data' 
+      });
+    }
 
-//     // Update user profile with image path
-//     await pool.query(
-//       'UPDATE profiles SET profile_image = ? WHERE user_id = ?',
-//       [imagePath, userId]
-//     );
+    // Update partner preference in database
+    const updated = await User.updatePartnerPreference(userId, partnerPreference);
+    
+    if (!updated) {
+      return res.status(400).json({ 
+        success: false,
+        message: 'Failed to update partner preference' 
+      });
+    }
 
-//     res.status(200).json({
-//       success: true,
-//       imageUrl: `/uploads/profiles/${imagePath}`
-//     });
-//   } catch (error) {
-//     console.error(error);
-//     res.status(500).json({ message: "Server error" });
-//   }
-// };
+    res.status(200).json({
+      success: true,
+      message: 'Partner preference updated successfully'
+    });
+
+  } catch (error) {
+    console.error('Add partner preference error:', error);
+    res.status(500).json({ 
+      success: false,
+      message: error.message || 'Server error updating partner preference' 
+    });
+  }
+};
+
+exports.addPartnerPrefernce = async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const { 
+     basic, community,education, location,otherDetails,familyDetails,financialStatus,hobbies,verificationData
+    } = req.body;
+
+    // Validate required fields
+    if (!basic || !community || !education || !location || !otherDetails || !familyDetails || !financialStatus || !hobbies || !verificationData) {
+      return res.status(400).json({ 
+        success: false,
+        message: 'Required fields are missing' 
+      });
+    }
+
+    // Prepare partner preference data
+    const partnerPreference = {
+     basic, community, education, location, otherDetails
+    };
+
+    // Update partner preference in database
+    const updated = await User.updatePartnerPreference(
+      userId,
+      partnerPreference,
+      verificationData, 
+      hobbies,
+      financialStatus,
+      familyDetails,
+    );
+    
+    if (!updated) {
+      return res.status(400).json({ 
+        success: false,
+        message: 'Failed to update partner preference' 
+      });
+    }
+
+    res.status(200).json({
+      success: true,
+      message: 'Partner preference updated successfully'
+    });
+
+  } catch (error) {
+    console.error('Add partner preference error:', error);
+    res.status(500).json({ 
+      success: false,
+      message: error.message || 'Server error updating partner preference' 
+    });
+  }
+};
+
+exports.getPartnerPreference = async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const preference = await User.getPartnerPreference(userId);
+
+    if (!preference) {
+      return res.status(404).json({ 
+        success: false,
+        message: 'Partner preference not found' 
+      });
+    }
+
+    res.status(200).json({
+      success: true,
+      preference
+    });
+
+  } catch (error) {
+    console.error('Get partner preference error:', error);
+    res.status(500).json({ 
+      success: false,
+      message: error.message || 'Server error fetching partner preference' 
+    });
+  }
+};
+
+exports.sendOtpToEmail = async (req, res) => {
+  try {
+    const { email } = req.body;
+ 
+    const user = await User.findByEmail(email);
+    if (!user) return res.status(404).json({ message: "User not found" });
+ 
+    await generateAndSendEmailOTP(email);
+ 
+    return res.json({ message: "OTP sent successfully to email" });
+  } catch (error) {
+    console.error("Error sending OTP:", error);
+    res.status(500).json({ message: "Failed to send OTP" });
+  }
+};
+ 
+/**
+ * Verify OTP
+ */
+exports.verifyOtp = async (req, res) => {
+  try {
+    const { email, otp } = req.body;
+ 
+    const isValid = await verifyEmailOTP(email, otp);
+    if (!isValid) {
+      return res.status(400).json({ message: "Invalid or expired OTP" });
+    }
+ 
+    return res.json({ message: "OTP verified successfully" });
+  } catch (error) {
+    console.error("OTP verification failed:", error);
+    res.status(500).json({ message: "OTP verification failed" });
+  }
+};
+ 
+/**
+ * Reset password after verifying OTP
+ */
+exports.resetPassword = async (req, res) => {
+  try {
+    const { email, otp, newPassword } = req.body;
+ 
+    const isValid = await verifyEmailOTP(email, otp);
+    if (!isValid) {
+      return res.status(400).json({ message: "Invalid or expired OTP" });
+    }
+ 
+    const salt = await bcrypt.genSalt(10);
+    const hashedPassword = await bcrypt.hash(newPassword, salt);
+ 
+    await User.updatePasswordByEmail(email, hashedPassword);
+ 
+    return res.json({ message: "Password reset successful" });
+  } catch (error) {
+    console.error("Reset password error:", error);
+    res.status(500).json({ message: "Failed to reset password" });
+  }
+};
