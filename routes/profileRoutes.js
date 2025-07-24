@@ -43,4 +43,7 @@ router.post('/verify-otp', profileController.verifyOtp);
 // Reset password using verified OTP
 router.post('/reset-password', profileController.resetPassword);
 
+router.put('/update', authMiddleware, profileController.updateProfile);
+router.get('/users-by-looking-for', profileController.getUsersByLookingFor);
+
 module.exports = router;

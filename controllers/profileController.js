@@ -283,15 +283,17 @@ exports.addPartnerPrefernce = async (req, res) => {
   try {
     const userId = req.user.id;
     const { 
-     basic, community,education, location,otherDetails,familyDetails,financialStatus,hobbies,verificationData
+     basic, community,education, location,otherDetails,familyDetails,financialStatus,hobbies,verificationData, onlyPartnerPrefrence = false
     } = req.body;
 
     // Validate required fields
-    if (!basic || !community || !education || !location || !otherDetails || !familyDetails || !financialStatus || !hobbies || !verificationData) {
-      return res.status(400).json({ 
-        success: false,
-        message: 'Required fields are missing' 
-      });
+    if(!onlyPartnerPrefrence){
+      if (!basic || !community || !education || !location || !otherDetails || !familyDetails || !financialStatus || !hobbies || !verificationData) {
+        return res.status(400).json({ 
+          success: false,
+          message: 'Required fields are missing' 
+        });
+      }
     }
 
     // Prepare partner preference data
@@ -300,7 +302,9 @@ exports.addPartnerPrefernce = async (req, res) => {
     };
 
     // Update partner preference in database
-    const updated = await User.updatePartnerPreference(
+let updated = {};
+    if(!onlyPartnerPrefrence){
+      updated = await User.updatePartnerPreference(
       userId,
       partnerPreference,
       verificationData, 
@@ -308,6 +312,9 @@ exports.addPartnerPrefernce = async (req, res) => {
       financialStatus,
       familyDetails,
     );
+    }else{
+      updated = await User.updateOnlyPartnerPreference( userId, partnerPreference );
+    }
     
     if (!updated) {
       return res.status(400).json({ 
@@ -414,3 +421,160 @@ exports.resetPassword = async (req, res) => {
     res.status(500).json({ message: "Failed to reset password" });
   }
 };
+
+exports.updateProfile = async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const {
+      // Basic info
+      firstName,
+      lastName,
+      phone,
+      
+      // Profile info
+      person,
+      gender,
+      birthDay,
+      birthMonth,
+      birthYear,
+      community,
+      livingIn,
+      city,
+      livesWithFamily,
+      familyCity,
+      subCommunity,
+      maritalStatus,
+      height,
+      diet,
+      qualification,
+      college,
+      incomePer,
+      income,
+      workType,
+      profession,
+      profile_description,
+      excludeFromAffiliates,
+      
+      // New fields
+      blood_group,
+      health_info,
+      disability,
+      gothra,
+      mother_tongue,
+      birth_time,
+      birth_city,
+      manglik,
+      employer,
+      
+      // JSON fields
+      hobbies,
+      financial_status,
+      familyDetails,
+      verificationData
+    } = req.body;
+
+    // Update user table (basic info)
+    if (firstName || lastName || phone) {
+      await User.updateBasicInfo(userId, {
+        firstName,
+        lastName,
+        phone
+      });
+    }
+
+    // Prepare profile update data
+    const profileData = {
+      // Existing fields
+      person,
+      gender,
+      birth_day: birthDay,
+      birth_month: birthMonth,
+      birth_year: birthYear,
+      community,
+      living_in: livingIn,
+      city,
+      lives_with_family: livesWithFamily,
+      family_city: familyCity,
+      sub_community: subCommunity,
+      marital_status: maritalStatus,
+      height,
+      diet,
+      qualification,
+      college,
+      incomePer,
+      income,
+      work_type: workType,
+      profession,
+      profile_description: profile_description,
+      exclude_from_affiliates: excludeFromAffiliates,
+      
+      // New fields
+      blood_group: blood_group,
+      health_info: health_info,
+      disability,
+      gothra,
+      mother_tongue: mother_tongue,
+      birth_time: birth_time,
+      birth_city: birth_city,
+      manglik,
+      employer,
+      
+      // JSON fields
+      hobbies: hobbies ? JSON.stringify(hobbies) : undefined,
+      financial_status: financial_status,
+      family_details: familyDetails ? JSON.stringify(familyDetails) : undefined,
+      verificationData: verificationData ? JSON.stringify(verificationData) : undefined
+    };
+
+    // Remove undefined values
+    Object.keys(profileData).forEach(key => {
+      if (profileData[key] === undefined) {
+        delete profileData[key];
+      }
+    });
+
+    // Update profile
+    const updated = await User.updateProfile(userId, profileData);
+    
+    if (!updated) {
+      return res.status(400).json({ 
+        success: false,
+        message: 'Failed to update profile' 
+      });
+    }
+
+    // Get updated profile to return
+    const updatedProfile = await User.getProfile(userId);
+
+    res.status(200).json({
+      success: true,
+      message: 'Profile updated successfully',
+      profile: updatedProfile
+    });
+
+  } catch (error) {
+    console.error('Update profile error:', error);
+    res.status(500).json({ 
+      success: false,
+      message: error.message || 'Server error updating profile' 
+    });
+  }
+};
+
+exports.getUsersByLookingFor = async (req, res) => {
+  try {
+    const { looking_for } = req.query;
+ 
+    if (!looking_for || !['Bride', 'Groom'].includes(looking_for)) {
+      return res.status(400).json({ message: "Invalid 'looking_for' value" });
+    }
+ 
+    const users = await User.getUsersByLookingFor(looking_for);
+    return res.status(200).json({ success: true, users });
+  } catch (error) {
+    console.error("Error fetching users by looking_for:", error);
+    return res.status(500).json({ success: false, message: "Server Error" });
+  }
+};
+ 
+ 

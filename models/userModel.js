@@ -234,7 +234,22 @@ static async updatePartnerPreference(userId, partnerPreference, verificationData
     // Update partner preference JSON in profiles table
     const [result] = await pool.query(
       'UPDATE profiles SET verificationData=?, hobbies=?, financial_status=?, family_details =?, partner_preference = ? WHERE user_id = ?',
-      [JSON.stringify(verificationData), JSON.stringify(hobbies), JSON.stringify(financialStatus), JSON.stringify(familyDetails), JSON.stringify(partnerPreference), userId]
+      [JSON.stringify(verificationData), JSON.stringify(hobbies), financialStatus, JSON.stringify(familyDetails), JSON.stringify(partnerPreference), userId]
+    );
+    console.log('Update result:', result);
+    return result.affectedRows > 0;
+  } catch (error) {
+    console.error('Error updating partner preference:', error);
+    throw error;
+  }
+}
+
+static async updateOnlyPartnerPreference(userId, partnerPreference) {
+  try {
+    // Update partner preference JSON in profiles table
+    const [result] = await pool.query(
+      'UPDATE profiles SET partner_preference = ? WHERE user_id = ?',
+      [JSON.stringify(partnerPreference), userId]
     );
     console.log('Update result:', result);
     return result.affectedRows > 0;
@@ -270,7 +285,7 @@ static async getPartnerPreference(userId) {
       preference.hobbies = JSON.parse(preference.hobbies);
     }
     if (preference.financial_status) {
-      preference.financial_status = JSON.parse(preference.financial_status);
+      preference.financial_status = preference.financial_status;
     }
     if (preference.family_details) {
       preference.family_details = JSON.parse(preference.family_details);
@@ -286,6 +301,93 @@ static async getPartnerPreference(userId) {
 static async updatePasswordByEmail(email, hashedPassword) {
   await pool.query(`UPDATE users SET password = ? WHERE email = ?`, [hashedPassword, email])
 }
+
+static async updateBasicInfo(userId, { firstName, lastName, phone }) {
+  const updates = [];
+  const params = [];
+  
+  if (firstName) {
+    updates.push('first_name = ?');
+    params.push(firstName);
+  }
+  
+  if (lastName) {
+    updates.push('last_name = ?');
+    params.push(lastName);
+  }
+  
+  if (phone) {
+    updates.push('phone = ?');
+    params.push(phone);
+  }
+  
+  if (updates.length === 0) {
+    return false;
+  }
+  
+  params.push(userId);
+  
+  const [result] = await pool.query(
+    `UPDATE users SET ${updates.join(', ')} WHERE id = ?`,
+    params
+  );
+  
+  return result.affectedRows > 0;
 }
+
+static async updateProfile(userId, profileData) {
+  try {
+    if (Object.keys(profileData).length === 0) {
+      return false;
+    }
+    
+    const setClause = Object.keys(profileData)
+      .map(key => `${key} = ?`)
+      .join(', ');
+    
+    const values = Object.values(profileData);
+    values.push(userId);
+    
+    const [result] = await pool.query(
+      `UPDATE profiles SET ${setClause} WHERE user_id = ?`,
+      values
+    );
+    
+    return result.affectedRows > 0;
+  } catch (error) {
+    console.error('Error updating profile:', error);
+    throw error;
+  }
+}
+  static async getUsersByLookingFor(lookingFor) {
+  try {
+    const [rows] = await pool.query(`
+      SELECT
+        u.id AS user_id,
+        u.first_name,
+        u.last_name,
+        u.email,
+        u.looking_for,
+        u.dob,
+        u.religion,
+        u.education,
+        u.country,
+        p.*
+      FROM users u
+      JOIN profiles p ON u.id = p.user_id
+      WHERE u.looking_for = ?
+    `, [lookingFor]);
+ 
+    return rows;
+  } catch (error) {
+    console.error('Error fetching users by looking_for:', error);
+    throw error;
+  }
+}
+ 
+
+}
+
+
 
 module.exports = User;
