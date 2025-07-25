@@ -384,7 +384,89 @@ static async updateProfile(userId, profileData) {
     throw error;
   }
 }
- 
+ static async updateEmail(userId, newEmail) {
+  try {
+    // First check if the new email already exists
+    const [existing] = await pool.query(
+      'SELECT id FROM users WHERE email = ? AND id != ?',
+      [newEmail, userId]
+    );
+    
+    if (existing.length > 0) {
+      throw new Error('Email already in use by another account');
+    }
+
+    // Update the email
+    const [result] = await pool.query(
+      'UPDATE users SET email = ?, email_verified = 0 WHERE id = ?',
+      [newEmail, userId]
+    );
+
+    return result.affectedRows > 0;
+  } catch (error) {
+    console.error('Error updating email:', error);
+    throw error;
+  }
+}
+
+static async getProfileSettings(userId) {
+  try {
+    const [rows] = await pool.query(`
+      SELECT * 
+      FROM profile_settings 
+      WHERE user_id = ?
+    `, [userId]);
+    
+    return rows[0] || null;
+  } catch (error) {
+    console.error('Error getting contact settings:', error);
+    throw error;
+  }
+}
+
+static async updateContactSettings(userId, { phone, contactStatus }) {
+  try {
+    // Start transaction
+    await pool.query('START TRANSACTION');
+
+    // Update phone in users table if provided
+    if (phone) {
+      await pool.query(
+        'UPDATE users SET phone = ? WHERE id = ?',
+        [phone, userId]
+      );
+    }
+
+    // Check if settings exist
+    const [existing] = await pool.query(
+      'SELECT id FROM profile_settings WHERE user_id = ?',
+      [userId]
+    );
+
+    if (existing.length > 0) {
+      // Update existing settings
+      await pool.query(
+        'UPDATE profile_settings SET display_contact_status = ? WHERE user_id = ?',
+        [contactStatus, userId]
+      );
+    } else {
+      // Create new settings
+      await pool.query(
+        'INSERT INTO profile_settings (user_id, display_contact_status) VALUES (?, ?)',
+        [userId, contactStatus]
+      );
+    }
+
+    // Commit transaction
+    await pool.query('COMMIT');
+    return true;
+  } catch (error) {
+    // Rollback on error
+    await pool.query('ROLLBACK');
+    console.error('Error updating contact settings:', error);
+    throw error;
+  }
+}
 
 }
 

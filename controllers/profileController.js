@@ -315,7 +315,7 @@ let updated = {};
     }else{
       updated = await User.updateOnlyPartnerPreference( userId, partnerPreference );
     }
-    
+    console.log("updated",updated)
     if (!updated) {
       return res.status(400).json({ 
         success: false,
@@ -577,4 +577,103 @@ exports.getUsersByLookingFor = async (req, res) => {
   }
 };
  
+exports.updateEmail = async (req, res) => {
+  try {
+    const userId = req.user.id; // Get user ID from auth middleware
+    const { newEmail } = req.body;
+
+    // Validate input
+    if (!newEmail || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(newEmail)) {
+      return res.status(400).json({ 
+        success: false,
+        message: 'Please provide a valid email address' 
+      });
+    }
+
+    // Update email in database
+    const updated = await User.updateEmail(userId, newEmail);
+    
+    if (!updated) {
+      return res.status(400).json({ 
+        success: false,
+        message: 'Failed to update email' 
+      });
+    }
+
+    // Send verification email (optional - if you want to require re-verification)
+    await generateAndSendEmailOTP(newEmail);
+
+    res.status(200).json({
+      success: true,
+      message: 'Email updated successfully. Please verify your new email.',
+      email: newEmail
+    });
+
+  } catch (error) {
+    console.error('Update email error:', error);
+    res.status(500).json({ 
+      success: false,
+      message: error.message || 'Server error updating email' 
+    });
+  }
+};
  
+exports.getProfileSettings = async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const settings = await User.getProfileSettings(userId);
+
+    res.status(200).json({
+      success: true,
+      settings
+    });
+
+  } catch (error) {
+    console.error('Get contact settings error:', error);
+    res.status(500).json({ 
+      success: false,
+      message: error.message || 'Server error getting contact settings' 
+    });
+  }
+};
+
+exports.updateContactSettings = async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const { phone, contactStatus } = req.body;
+
+    // Validate contact status
+    const validStatuses = ['premiumMembers', 'premiumLiked', 'noOne', 'allMatches'];
+    if (!validStatuses.includes(contactStatus)) {
+      return res.status(400).json({ 
+        success: false,
+        message: 'Invalid contact status' 
+      });
+    }
+
+    // Update in database
+    const updated = await User.updateContactSettings(userId, {
+      phone,
+      contactStatus
+    });
+
+    if (!updated) {
+      return res.status(400).json({ 
+        success: false,
+        message: 'Failed to update contact settings' 
+      });
+    }
+
+    res.status(200).json({
+      success: true,
+      message: 'Contact settings updated successfully'
+    });
+
+  } catch (error) {
+    console.error('Update contact settings error:', error);
+    res.status(500).json({ 
+      success: false,
+      message: error.message || 'Server error updating contact settings' 
+    });
+  }
+};

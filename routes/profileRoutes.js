@@ -46,4 +46,8 @@ router.post('/reset-password', profileController.resetPassword);
 router.put('/update', authMiddleware, profileController.updateProfile);
 router.get('/users-by-looking-for', profileController.getUsersByLookingFor);
 
+router.put('/update-email', authMiddleware, profileController.updateEmail);
+router.get('/profile-settings', authMiddleware, profileController.getProfileSettings);
+router.put('/contact-settings', authMiddleware, profileController.updateContactSettings);
+
 module.exports = router;
