@@ -20,12 +20,12 @@ static async create(userData) {
 }
 
   static async findByEmail(email) {
-    const [rows] = await pool.query('SELECT users.*, profiles.* FROM users LEFT JOIN profiles ON profiles.user_id = users.id WHERE users.email = ?', [email]);
+    const [rows] = await pool.query('SELECT users.id AS user_id,profiles.id AS profile_id,users.*, profiles.* FROM users LEFT JOIN profiles ON profiles.user_id = users.id WHERE users.email = ?', [email]);
     return rows[0];
   }
 
   static async findById(id) {
-    const [rows] = await pool.query('SELECT users.*, profiles.* FROM users LEFT JOIN profiles ON profiles.user_id = users.id WHERE users.id = ?', [id]);
+    const [rows] = await pool.query('SELECT users.id AS user_id,profiles.id AS profile_id,users.*, profiles.* FROM users LEFT JOIN profiles ON profiles.user_id = users.id WHERE users.id = ?', [id]);
     return rows[0];
   }
 
@@ -53,7 +53,8 @@ static async create(userData) {
       work_type,
       profession,
       profile_description,
-      exclude_from_affiliates
+      exclude_from_affiliates,
+      mother_tongue
     } = profileData;
 
     const [result] = await pool.query(
@@ -61,13 +62,13 @@ static async create(userData) {
         user_id, person, gender, birth_day, birth_month, birth_year, 
         community, living_in, city, lives_with_family, family_city,
         sub_community, marital_status, height, diet, qualification, college, incomePer,
-        income, work_type, profession, profile_description, exclude_from_affiliates
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        income, work_type, profession, profile_description, exclude_from_affiliates, mother_tongue
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         user_id, person, gender, birth_day, birth_month, birth_year,
         community, living_in, city, lives_with_family, family_city,
         sub_community, marital_status, height, diet, qualification, college, incomePer,
-        income, work_type, profession, profile_description, exclude_from_affiliates
+        income, work_type, profession, profile_description, exclude_from_affiliates, mother_tongue
       ]
     );
     return result.insertId;
@@ -424,7 +425,7 @@ static async getProfileSettings(userId) {
   }
 }
 
-static async updateContactSettings(userId, { phone, contactStatus }) {
+static async updateProfileSettings(userId, { phone, contactStatus, astro_display_status }) {
   try {
     // Start transaction
     await pool.query('START TRANSACTION');
@@ -445,15 +446,29 @@ static async updateContactSettings(userId, { phone, contactStatus }) {
 
     if (existing.length > 0) {
       // Update existing settings
-      await pool.query(
-        'UPDATE profile_settings SET display_contact_status = ? WHERE user_id = ?',
-        [contactStatus, userId]
-      );
+      let updateQuery = 'UPDATE profile_settings SET ';
+      const updateParams = [];
+      let updates = [];
+      
+      if (contactStatus) {
+        updates.push('display_contact_status = ?');
+        updateParams.push(contactStatus);
+      }
+      
+      if (astro_display_status) {
+        updates.push('astro_display_status = ?');
+        updateParams.push(astro_display_status);
+      }
+      
+      updateQuery += updates.join(', ') + ' WHERE user_id = ?';
+      updateParams.push(userId);
+      
+      await pool.query(updateQuery, updateParams);
     } else {
-      // Create new settings
+      // Create new settings with provided values (defaulting others to NULL)
       await pool.query(
-        'INSERT INTO profile_settings (user_id, display_contact_status) VALUES (?, ?)',
-        [userId, contactStatus]
+        'INSERT INTO profile_settings (user_id, display_contact_status, astro_display_status) VALUES (?, ?, ?)',
+        [userId, contactStatus || null, astro_display_status || null]
       );
     }
 
@@ -463,7 +478,128 @@ static async updateContactSettings(userId, { phone, contactStatus }) {
   } catch (error) {
     // Rollback on error
     await pool.query('ROLLBACK');
-    console.error('Error updating contact settings:', error);
+    console.error('Error updating profile settings:', error);
+    throw error;
+  }
+}
+
+static async updateAstroDetails(userId, { 
+  birth_time,
+  birth_city,
+  manglik,
+  nakshatra,
+  rashi
+}) {
+  try {
+    // Start transaction
+    await pool.query('START TRANSACTION');
+
+    // Update astro details in profiles table
+    const [result] = await pool.query(
+      `UPDATE profiles 
+       SET birth_time = ?, birth_city = ?, manglik = ?, nakshatra = ?, rashi = ?
+       WHERE user_id = ?`,
+      [birth_time, birth_city, manglik, nakshatra, rashi, userId]
+    );
+
+    // Commit transaction
+    await pool.query('COMMIT');
+    return result.affectedRows > 0;
+  } catch (error) {
+    // Rollback on error
+    await pool.query('ROLLBACK');
+    console.error('Error updating astro details:', error);
+    throw error;
+  }
+}
+
+static async getAlertSettings(userId) {
+  try {
+    const [settings] = await pool.query(
+      'SELECT alert_settings FROM profile_settings WHERE user_id = ?',
+      [userId]
+    );
+    return settings.length > 0 ? JSON.parse(settings[0].alert_settings) : null;
+  } catch (error) {
+    console.error('Error getting alert settings:', error);
+    throw error;
+  }
+}
+
+static async updateAlertSettings(userId, settings) {
+  try {
+    await pool.query('START TRANSACTION');
+    
+    // Check if settings exist
+    const [existing] = await pool.query(
+      'SELECT id FROM profile_settings WHERE user_id = ?',
+      [userId]
+    );
+
+    const settingsJson = JSON.stringify(settings);
+    
+    if (existing.length > 0) {
+      await pool.query(
+        'UPDATE profile_settings SET alert_settings = ? WHERE user_id = ?',
+        [settingsJson, userId]
+      );
+    } else {
+      await pool.query(
+        'INSERT INTO profile_settings (user_id, alert_settings) VALUES (?, ?)',
+        [userId, settingsJson]
+      );
+    }
+
+    await pool.query('COMMIT');
+    return true;
+  } catch (error) {
+    await pool.query('ROLLBACK');
+    console.error('Error updating alert settings:', error);
+    throw error;
+  }
+}
+
+static async getPrivacySettings(userId) {
+  try {
+    const [settings] = await pool.query(
+      'SELECT privacy_settings FROM profile_settings WHERE user_id = ?',
+      [userId]
+    );
+    return settings.length > 0 ? JSON.parse(settings[0].privacy_settings) : null;
+  } catch (error) {
+    console.error('Error getting privacy settings:', error);
+    throw error;
+  }
+}
+
+static async updatePrivacySettings(userId, settings) {
+  try {
+    await pool.query('START TRANSACTION');
+    
+    const [existing] = await pool.query(
+      'SELECT id FROM profile_settings WHERE user_id = ?',
+      [userId]
+    );
+
+    const settingsJson = JSON.stringify(settings);
+    
+    if (existing.length > 0) {
+      await pool.query(
+        'UPDATE profile_settings SET privacy_settings = ? WHERE user_id = ?',
+        [settingsJson, userId]
+      );
+    } else {
+      await pool.query(
+        'INSERT INTO profile_settings (user_id, privacy_settings) VALUES (?, ?)',
+        [userId, settingsJson]
+      );
+    }
+
+    await pool.query('COMMIT');
+    return true;
+  } catch (error) {
+    await pool.query('ROLLBACK');
+    console.error('Error updating privacy settings:', error);
     throw error;
   }
 }

@@ -48,6 +48,13 @@ router.get('/users-by-looking-for', profileController.getUsersByLookingFor);
 
 router.put('/update-email', authMiddleware, profileController.updateEmail);
 router.get('/profile-settings', authMiddleware, profileController.getProfileSettings);
-router.put('/contact-settings', authMiddleware, profileController.updateContactSettings);
+router.put('/profile-settings', authMiddleware, profileController.updateProfileSettings);
+router.put('/astro-details', authMiddleware, profileController.updateAstroDetails);
+
+router.get('/alert-settings', authMiddleware, profileController.getAlertSettings);
+router.put('/alert-settings', authMiddleware, profileController.updateAlertSettings);
+
+router.get('/privacy-settings', authMiddleware, profileController.getPrivacySettings);
+router.put('/privacy-settings', authMiddleware, profileController.updatePrivacySettings);
 
 module.exports = router;

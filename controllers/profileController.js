@@ -44,7 +44,8 @@ exports.registerProfile = async (req, res) => {
       workType,
       profession,
       profileDescription,
-      excludeFromAffiliates
+      excludeFromAffiliates,
+      motherTongue
     } = req.body;
 
     // Check if user exists
@@ -101,6 +102,7 @@ exports.registerProfile = async (req, res) => {
       profession,
       profile_description: profileDescription,
       exclude_from_affiliates: excludeFromAffiliates,
+      mother_tongue: motherTongue,
     };
 
     await User.createProfile(profileData);
@@ -140,6 +142,8 @@ exports.uploadProfileImage = async (req, res) => {
 
     const userId = req.user.id;
     const imagePath = req.file.filename;
+    console.log("userId", userId);
+    console.log("imagePath", imagePath);
 
     // Update profile image in database
     const updated = await User.updateProfileImage(userId, imagePath);
@@ -469,7 +473,7 @@ exports.updateProfile = async (req, res) => {
       // JSON fields
       hobbies,
       financial_status,
-      familyDetails,
+      family_details,
       verificationData
     } = req.body;
 
@@ -522,7 +526,7 @@ exports.updateProfile = async (req, res) => {
       // JSON fields
       hobbies: hobbies ? JSON.stringify(hobbies) : undefined,
       financial_status: financial_status,
-      family_details: familyDetails ? JSON.stringify(familyDetails) : undefined,
+      family_details: family_details ? JSON.stringify(family_details) : undefined,
       verificationData: verificationData ? JSON.stringify(verificationData) : undefined
     };
 
@@ -637,43 +641,221 @@ exports.getProfileSettings = async (req, res) => {
   }
 };
 
-exports.updateContactSettings = async (req, res) => {
+exports.updateProfileSettings = async (req, res) => {
   try {
     const userId = req.user.id;
-    const { phone, contactStatus } = req.body;
+    const { phone, contactStatus, astro_display_status } = req.body;
 
-    // Validate contact status
-    const validStatuses = ['premiumMembers', 'premiumLiked', 'noOne', 'allMatches'];
-    if (!validStatuses.includes(contactStatus)) {
-      return res.status(400).json({ 
-        success: false,
-        message: 'Invalid contact status' 
-      });
+    // Validate which type of update is being requested
+    if (contactStatus) {
+      // Validate contact status
+      const validContactStatuses = ['premiumMembers', 'premiumLiked', 'noOne', 'allMatches'];
+      if (!validContactStatuses.includes(contactStatus)) {
+        return res.status(400).json({ 
+          success: false,
+          message: 'Invalid contact status' 
+        });
+      }
+    }
+
+    if (astro_display_status) {
+      // Validate astro display status
+      const validAstroStatuses = ['visibleToALL', 'visibleToContactedAndAccepted', 'hideFromALL'];
+      if (!validAstroStatuses.includes(astro_display_status)) {
+        return res.status(400).json({ 
+          success: false,
+          message: 'Invalid astro display status' 
+        });
+      }
     }
 
     // Update in database
-    const updated = await User.updateContactSettings(userId, {
+    const updated = await User.updateProfileSettings(userId, {
       phone,
-      contactStatus
+      contactStatus,
+      astro_display_status
     });
 
     if (!updated) {
       return res.status(400).json({ 
         success: false,
-        message: 'Failed to update contact settings' 
+        message: 'Failed to update profile settings' 
       });
     }
 
     res.status(200).json({
       success: true,
-      message: 'Contact settings updated successfully'
+      message: 'Profile settings updated successfully'
     });
 
   } catch (error) {
-    console.error('Update contact settings error:', error);
+    console.error('Update profile settings error:', error);
     res.status(500).json({ 
       success: false,
-      message: error.message || 'Server error updating contact settings' 
+      message: error.message || 'Server error updating profile settings' 
+    });
+  }
+};
+exports.updateAstroDetails = async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const { 
+      birth_time,
+      birth_city,
+      manglik,
+      nakshatra,
+      rashi
+    } = req.body;
+
+    // Basic validation
+    if (!birth_time || !birth_city) {
+      return res.status(400).json({
+        success: false,
+        message: 'Birth time and city are required'
+      });
+    }
+
+    // Update in database
+    const updated = await User.updateAstroDetails(userId, {
+      birth_time,
+      birth_city,
+      manglik,
+      nakshatra,
+      rashi
+    });
+
+    if (!updated) {
+      return res.status(400).json({ 
+        success: false,
+        message: 'Failed to update astro details' 
+      });
+    }
+
+    res.status(200).json({
+      success: true,
+      message: 'Astro details updated successfully'
+    });
+
+  } catch (error) {
+    console.error('Update astro details error:', error);
+    res.status(500).json({ 
+      success: false,
+      message: error.message || 'Server error updating astro details' 
+    });
+  }
+};
+
+exports.getAlertSettings = async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const settings = await User.getAlertSettings(userId);
+    
+    res.status(200).json({
+      success: true,
+      settings: settings || {
+        matchMail: 'daily',
+        broaderMatches: true,
+        premiumMatch: 'weekly',
+        recentVisitors: 'weekly',
+        shortlisted: 'weekly',
+        viewedProfile: 'weekly',
+        similarProfile: 'biweekly',
+        contactAlert: 'instant',
+        messageReceived: 'unsubscribe',
+        smsInvitations: true,
+        smsAcceptInvitations: false,
+        profileBlaster: 'unsubscribe',
+        shadiSpecials: false,
+        shadiInsite: false
+      }
+    });
+  } catch (error) {
+    console.error('Get alert settings error:', error);
+    res.status(500).json({ 
+      success: false,
+      message: error.message || 'Server error getting alert settings' 
+    });
+  }
+};
+
+exports.updateAlertSettings = async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const settings = req.body;
+
+    const updated = await User.updateAlertSettings(userId, settings);
+
+    if (!updated) {
+      return res.status(400).json({ 
+        success: false,
+        message: 'Failed to update alert settings' 
+      });
+    }
+
+    res.status(200).json({
+      success: true,
+      message: 'Alert settings updated successfully'
+    });
+  } catch (error) {
+    console.error('Update alert settings error:', error);
+    res.status(500).json({ 
+      success: false,
+      message: error.message || 'Server error updating alert settings' 
+    });
+  }
+};
+
+
+exports.getPrivacySettings = async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const settings = await User.getPrivacySettings(userId);
+    
+    res.status(200).json({
+      success: true,
+      settings: settings || {
+        displayName: 'hideLast',
+        phone: 'premiumMembers',
+        email: 'premiumMembers',
+        dob: 'full',
+        income: 'visible',
+        shortlist: 'show',
+        dnd: true,
+        profilePrivacy: 'allVisitors'
+      }
+    });
+  } catch (error) {
+    console.error('Get privacy settings error:', error);
+    res.status(500).json({ 
+      success: false,
+      message: error.message || 'Server error getting privacy settings' 
+    });
+  }
+};
+
+exports.updatePrivacySettings = async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const settings = req.body;
+
+    const updated = await User.updatePrivacySettings(userId, settings);
+
+    if (!updated) {
+      return res.status(400).json({ 
+        success: false,
+        message: 'Failed to update privacy settings' 
+      });
+    }
+
+    res.status(200).json({
+      success: true,
+      message: 'Privacy settings updated successfully'
+    });
+  } catch (error) {
+    console.error('Update privacy settings error:', error);
+    res.status(500).json({ 
+      success: false,
+      message: error.message || 'Server error updating privacy settings' 
     });
   }
 };
