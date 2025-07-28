@@ -142,8 +142,6 @@ exports.uploadProfileImage = async (req, res) => {
 
     const userId = req.user.id;
     const imagePath = req.file.filename;
-    console.log("userId", userId);
-    console.log("imagePath", imagePath);
 
     // Update profile image in database
     const updated = await User.updateProfileImage(userId, imagePath);
@@ -319,7 +317,6 @@ let updated = {};
     }else{
       updated = await User.updateOnlyPartnerPreference( userId, partnerPreference );
     }
-    console.log("updated",updated)
     if (!updated) {
       return res.status(400).json({ 
         success: false,
@@ -644,7 +641,7 @@ exports.getProfileSettings = async (req, res) => {
 exports.updateProfileSettings = async (req, res) => {
   try {
     const userId = req.user.id;
-    const { phone, contactStatus, astro_display_status } = req.body;
+    const { phone, contactStatus = 'allMatches', astro_display_status} = req.body;
 
     // Validate which type of update is being requested
     if (contactStatus) {
@@ -859,3 +856,236 @@ exports.updatePrivacySettings = async (req, res) => {
     });
   }
 };
+
+exports.getShadiLivePreferences = async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const preferences = await User.getShadiLivePreferences(userId);
+    
+    res.status(200).json({
+      success: true,
+      preferences: preferences || {
+        pushNotification: true,
+        email: true,
+        sms: true,
+        whatsapp: true,
+        call: true
+      }
+    });
+  } catch (error) {
+    console.error('Get ShadiLive preferences error:', error);
+    res.status(500).json({ 
+      success: false,
+      message: error.message || 'Server error getting ShadiLive preferences' 
+    });
+  }
+};
+
+exports.updateShadiLivePreferences = async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const { preferences } = req.body;
+
+    const updated = await User.updateShadiLivePreferences(userId, preferences);
+
+    if (!updated) {
+      return res.status(400).json({ 
+        success: false,
+        message: 'Failed to update ShadiLive preferences' 
+      });
+    }
+
+    res.status(200).json({
+      success: true,
+      message: 'ShadiLive preferences updated successfully'
+    });
+  } catch (error) {
+    console.error('Update ShadiLive preferences error:', error);
+    res.status(500).json({ 
+      success: false,
+      message: error.message || 'Server error updating ShadiLive preferences' 
+    });
+  }
+};
+
+exports.newMatches = async (req, res) => {
+  try {
+    const { looking_for, ...filters } = req.query;
+ 
+    if (!looking_for || !['Bride', 'Groom'].includes(looking_for)) {
+      return res.status(400).json({ message: "Invalid 'looking_for' value" });
+    }
+ 
+    const processedFilters = {};
+ 
+    for (let [key, value] of Object.entries(filters)) {
+      // Remove brackets from keys like verificationStatus[]
+      key = key.replace(/\[\]$/, '');
+ 
+      // Convert comma-separated strings to arrays
+      if (typeof value === 'string') {
+        value = value.split(',');
+      }
+ 
+      // Ignore "all"
+      if (value.includes('all')) continue;
+ 
+      processedFilters[key] = value;
+    }
+ 
+    const users = await User.getNewMatchesByLookingFor(looking_for, processedFilters);
+    return res.status(200).json({ success: true, users });
+  } catch (error) {
+    console.error("Error fetching new matches by looking_for:", error);
+    return res.status(500).json({ success: false, message: "Server Error" });
+  }
+};
+exports.newMatchesNearMe = async (req, res) => {
+  try {
+    const { looking_for, nearMe, ...filters } = req.query;
+
+    if (!looking_for || !['Bride', 'Groom'].includes(looking_for)) {
+      return res.status(400).json({ message: "Invalid 'looking_for' value" });
+    }
+    const processedFilters = {};
+ 
+    for (let [key, value] of Object.entries(filters)) {
+      // Remove brackets from keys like verificationStatus[]
+      key = key.replace(/\[\]$/, '');
+ 
+      // Convert comma-separated strings to arrays
+      if (typeof value === 'string') {
+        value = value.split(',');
+      }
+ 
+      // Ignore "all"
+      if (value.includes('all')) continue;
+ 
+      processedFilters[key] = value;
+    }
+
+
+    const users = await User.getNewMatchesByNearMe(looking_for, nearMe, processedFilters);
+    return res.status(200).json({ success: true, users });
+  } catch (error) {
+    console.error("Error fetching new matches by looking_for:", error);
+    return res.status(500).json({ success: false, message: "Server Error" });
+  }
+};
+ 
+
+exports.getProfileStatus = async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const status = await User.getProfileStatus(userId);
+    
+    res.status(200).json({
+      success: true,
+      status
+    });
+  } catch (error) {
+    console.error('Get profile status error:', error);
+    res.status(500).json({ 
+      success: false,
+      message: error.message || 'Server error getting profile status' 
+    });
+  }
+};
+
+exports.hideProfile = async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const { status } = req.body;
+
+    if (!['active', 'hidden'].includes(status)) {
+      return res.status(400).json({ 
+        success: false,
+        message: 'Invalid status' 
+      });
+    }
+
+    await User.hideProfile(userId, status);
+
+    res.status(200).json({
+      success: true,
+      message: `Profile has been ${status === 'hidden' ? 'hidden' : 'unhidden'}`
+    });
+  } catch (error) {
+    console.error('Hide profile error:', error);
+    res.status(500).json({ 
+      success: false,
+      message: error.message || 'Server error updating profile status' 
+    });
+  }
+};
+
+exports.deleteProfile = async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const { password } = req.body;
+
+    if (!password) {
+      return res.status(400).json({ 
+        success: false,
+        message: 'Password is required' 
+      });
+    }
+
+    await User.deleteProfile(userId, password);
+
+    res.status(200).json({
+      success: true,
+      message: 'Profile has been deleted. You can recover it within 30 days.'
+    });
+  } catch (error) {
+    console.error('Delete profile error:', error);
+    res.status(500).json({ 
+      success: false,
+      message: error.message || 'Server error deleting profile' 
+    });
+  }
+};
+
+// Matches Controller
+exports.myMatches  = async (req, res) => {
+  try {
+    const { looking_for, partner_preference, ...filters } = req.query;
+ 
+    if (!looking_for || !['Bride', 'Groom'].includes(looking_for)) {
+      return res.status(400).json({ message: "Invalid 'looking_for' value" });
+    }
+ 
+    const processedFilters = {};
+ 
+    for (let [key, value] of Object.entries(filters)) {
+      key = key.replace(/\[\]$/, '');
+      if (typeof value === 'string') {
+        value = value.split(',');
+      }
+      if (value.includes('all')) continue;
+      processedFilters[key] = value;
+    }
+ 
+    let parsedPreference = null;
+    if (partner_preference) {
+      try {
+        parsedPreference = JSON.parse(partner_preference);
+      } catch (e) {
+        console.warn("Invalid partner_preference format", e);
+      }
+    }
+ 
+    console.log(parsedPreference, "parsedPreference");
+    const users = await User.getMyMatches(
+      looking_for,
+      processedFilters,
+      parsedPreference
+    );
+ 
+    return res.status(200).json({ success: true, users });
+  } catch (error) {
+    console.error("Error fetching new matches by looking_for:", error);
+    return res.status(500).json({ success: false, message: "Server Error" });
+  }
+};
+ 

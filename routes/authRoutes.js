@@ -32,4 +32,6 @@ router.post('/generate-password', async (req, res) => {
   }
 });
 
+router.post('/recover', authController.recoverAccount);
+
 module.exports = router;

@@ -1,4 +1,5 @@
 const pool = require('../config/db');
+const bcrypt = require("bcryptjs");
 
 class User {
 static async create(userData) {
@@ -20,9 +21,20 @@ static async create(userData) {
 }
 
   static async findByEmail(email) {
-    const [rows] = await pool.query('SELECT users.id AS user_id,profiles.id AS profile_id,users.*, profiles.* FROM users LEFT JOIN profiles ON profiles.user_id = users.id WHERE users.email = ?', [email]);
-    return rows[0];
-  }
+  const [rows] = await pool.query(
+    'SELECT users.id AS user_id, profiles.id AS profile_id, users.*, profiles.* FROM users LEFT JOIN profiles ON profiles.user_id = users.id WHERE users.email = ?',
+    [email]
+  );
+  return rows[0];
+}
+
+static async recoverAccount(email) {
+  const [result] = await pool.query(
+    'UPDATE users SET status = "active", deleted_at = NULL WHERE email = ? AND status = "deleted" AND deleted_at >= DATE_SUB(NOW(), INTERVAL 30 DAY)',
+    [email]
+  );
+  return result.affectedRows > 0;
+}
 
   static async findById(id) {
     const [rows] = await pool.query('SELECT users.id AS user_id,profiles.id AS profile_id,users.*, profiles.* FROM users LEFT JOIN profiles ON profiles.user_id = users.id WHERE users.id = ?', [id]);
@@ -237,7 +249,6 @@ static async updatePartnerPreference(userId, partnerPreference, verificationData
       'UPDATE profiles SET verificationData=?, hobbies=?, financial_status=?, family_details =?, partner_preference = ? WHERE user_id = ?',
       [JSON.stringify(verificationData), JSON.stringify(hobbies), financialStatus, JSON.stringify(familyDetails), JSON.stringify(partnerPreference), userId]
     );
-    console.log('Update result:', result);
     return result.affectedRows > 0;
   } catch (error) {
     console.error('Error updating partner preference:', error);
@@ -252,7 +263,6 @@ static async updateOnlyPartnerPreference(userId, partnerPreference) {
       'UPDATE profiles SET partner_preference = ? WHERE user_id = ?',
       [JSON.stringify(partnerPreference), userId]
     );
-    console.log('Update result:', result);
     return result.affectedRows > 0;
   } catch (error) {
     console.error('Error updating partner preference:', error);
@@ -385,7 +395,235 @@ static async updateProfile(userId, profileData) {
     throw error;
   }
 }
- static async updateEmail(userId, newEmail) {
+
+static async getNewMatchesByLookingFor(lookingFor, filters = {}) {
+  try {
+    let baseQuery = `
+      SELECT
+        u.id AS user_id,
+        u.first_name,
+        u.last_name,
+        u.email,
+        u.looking_for,
+        u.dob,
+        u.religion,
+        u.education,
+        u.country,
+        p.*
+      FROM users u
+      JOIN profiles p ON u.id = p.user_id
+      WHERE u.looking_for = ?
+    `;
+ 
+    const queryParams = [lookingFor];
+    const conditions = [];
+ 
+    // Process each filter
+    for (const [key, values] of Object.entries(filters)) {
+      if (!values || values.length === 0) continue;
+ 
+      switch(key) {
+        case 'verificationStatus':
+          if (values.includes('verified')) {
+            conditions.push(`p.verified = 1`);
+          }
+          break;
+         
+        case 'photoSettings':
+          if (values.includes('public')) {
+            conditions.push(`p.photo_privacy = 'public'`);
+          }
+          if (values.includes('protected')) {
+            conditions.push(`p.photo_privacy = 'protected'`);
+          }
+          break;
+         
+        case 'recentlyJoined':
+          // Only one value for radio buttons
+          const days = parseInt(values[0]);
+          if (!isNaN(days)) {
+            conditions.push(`p.created_at >= DATE_SUB(NOW(), INTERVAL ? DAY)`);
+            queryParams.push(days);
+          }
+          break;
+         
+        case 'maritalStatus':
+          conditions.push(`p.marital_status IN (?)`);
+          queryParams.push(values);
+          break;
+         
+        case 'religion':
+          conditions.push(`u.religion IN (?)`);
+          queryParams.push(values);
+          break;
+         
+        case 'diet':
+          conditions.push(`p.diet IN (?)`);
+          queryParams.push(values);
+          break;
+         
+        case 'country':
+          conditions.push(`p.living_in IN (?)`);
+          queryParams.push(values);
+          break;
+         
+        case 'income':
+          const incomeConditions = [];
+ 
+          for (const range of values) {
+            switch (range) {
+              case '0-1':
+                incomeConditions.push(`CAST(SUBSTRING_INDEX(p.income, ' ', 1) AS UNSIGNED) BETWEEN 0 AND 1`);
+                break;
+              case '1-5':
+                incomeConditions.push(`CAST(SUBSTRING_INDEX(p.income, ' ', 1) AS UNSIGNED) BETWEEN 1 AND 5`);
+                break;
+              case '5-10':
+                incomeConditions.push(`CAST(SUBSTRING_INDEX(p.income, ' ', 1) AS UNSIGNED) BETWEEN 5 AND 10`);
+                break;
+              case '10-20':
+                incomeConditions.push(`CAST(SUBSTRING_INDEX(p.income, ' ', 1) AS UNSIGNED) BETWEEN 10 AND 20`);
+                break;
+              case '20+':
+                incomeConditions.push(`CAST(SUBSTRING_INDEX(p.income, ' ', 1) AS UNSIGNED) > 20`);
+                break;
+            }
+          }
+ 
+          if (incomeConditions.length > 0) {
+            conditions.push(`(${incomeConditions.join(' OR ')})`);
+          }
+          break;
+ 
+      }
+    }
+ 
+    if (conditions.length > 0) {
+      baseQuery += ' AND ' + conditions.join(' AND ');
+    }
+ 
+    const [rows] = await pool.query(baseQuery, queryParams);
+    return rows;
+  } catch (error) {
+    console.error('Error fetching new matches:', error);
+    throw error;
+  }
+}
+static async getNewMatchesByNearMe(lookingFor, nearMe, filters = {}) {
+  try {
+    let baseQuery = `
+      SELECT
+        u.id AS user_id,
+        u.first_name,
+        u.last_name,
+        u.email,
+        u.looking_for,
+        u.dob,
+        u.religion,
+        u.education,
+        u.country,
+        p.*
+      FROM users u
+      JOIN profiles p ON u.id = p.user_id
+      WHERE u.looking_for = ? AND p.city = ?
+    `;
+
+    const queryParams = [lookingFor, nearMe];
+    const conditions = [];
+ 
+    // Process each filter
+    for (const [key, values] of Object.entries(filters)) {
+      if (!values || values.length === 0) continue;
+ 
+      switch(key) {
+        case 'verificationStatus':
+          if (values.includes('verified')) {
+            conditions.push(`p.verified = 1`);
+          }
+          break;
+         
+        case 'photoSettings':
+          if (values.includes('public')) {
+            conditions.push(`p.photo_privacy = 'public'`);
+          }
+          if (values.includes('protected')) {
+            conditions.push(`p.photo_privacy = 'protected'`);
+          }
+          break;
+         
+        case 'recentlyJoined':
+          // Only one value for radio buttons
+          const days = parseInt(values[0]);
+          if (!isNaN(days)) {
+            conditions.push(`p.created_at >= DATE_SUB(NOW(), INTERVAL ? DAY)`);
+            queryParams.push(days);
+          }
+          break;
+         
+        case 'maritalStatus':
+          conditions.push(`p.marital_status IN (?)`);
+          queryParams.push(values);
+          break;
+         
+        case 'religion':
+          conditions.push(`u.religion IN (?)`);
+          queryParams.push(values);
+          break;
+         
+        case 'diet':
+          conditions.push(`p.diet IN (?)`);
+          queryParams.push(values);
+          break;
+         
+        case 'country':
+          conditions.push(`p.living_in IN (?)`);
+          queryParams.push(values);
+          break;
+         
+        case 'income':
+          const incomeConditions = [];
+ 
+          for (const range of values) {
+            switch (range) {
+              case '0-1':
+                incomeConditions.push(`CAST(SUBSTRING_INDEX(p.income, ' ', 1) AS UNSIGNED) BETWEEN 0 AND 1`);
+                break;
+              case '1-5':
+                incomeConditions.push(`CAST(SUBSTRING_INDEX(p.income, ' ', 1) AS UNSIGNED) BETWEEN 1 AND 5`);
+                break;
+              case '5-10':
+                incomeConditions.push(`CAST(SUBSTRING_INDEX(p.income, ' ', 1) AS UNSIGNED) BETWEEN 5 AND 10`);
+                break;
+              case '10-20':
+                incomeConditions.push(`CAST(SUBSTRING_INDEX(p.income, ' ', 1) AS UNSIGNED) BETWEEN 10 AND 20`);
+                break;
+              case '20+':
+                incomeConditions.push(`CAST(SUBSTRING_INDEX(p.income, ' ', 1) AS UNSIGNED) > 20`);
+                break;
+            }
+          }
+ 
+          if (incomeConditions.length > 0) {
+            conditions.push(`(${incomeConditions.join(' OR ')})`);
+          }
+          break;
+ 
+      }
+    }
+ 
+    if (conditions.length > 0) {
+      baseQuery += ' AND ' + conditions.join(' AND ');
+    }
+ 
+    const [rows] = await pool.query(baseQuery, queryParams);
+    return rows;
+  } catch (error) {
+    console.error('Error fetching new matches:', error);
+    throw error;
+  }
+}
+ 
+static async updateEmail(userId, newEmail) {
   try {
     // First check if the new email already exists
     const [existing] = await pool.query(
@@ -600,6 +838,332 @@ static async updatePrivacySettings(userId, settings) {
   } catch (error) {
     await pool.query('ROLLBACK');
     console.error('Error updating privacy settings:', error);
+    throw error;
+  }
+}
+
+static async getShadiLivePreferences(userId) {
+  try {
+    const [settings] = await pool.query(
+      'SELECT shadilive_preferences FROM profile_settings WHERE user_id = ?',
+      [userId]
+    );
+    return settings.length > 0 ? JSON.parse(settings[0].shadilive_preferences) : null;
+  } catch (error) {
+    console.error('Error getting ShadiLive preferences:', error);
+    throw error;
+  }
+}
+
+static async updateShadiLivePreferences(userId, preferences) {
+  try {
+    await pool.query('START TRANSACTION');
+    
+    const [existing] = await pool.query(
+      'SELECT id FROM profile_settings WHERE user_id = ?',
+      [userId]
+    );
+
+    const preferencesJson = JSON.stringify(preferences);
+    
+    if (existing.length > 0) {
+      await pool.query(
+        'UPDATE profile_settings SET shadilive_preferences = ? WHERE user_id = ?',
+        [preferencesJson, userId]
+      );
+    } else {
+      await pool.query(
+        'INSERT INTO profile_settings (user_id, shadilive_preferences) VALUES (?, ?)',
+        [userId, preferencesJson]
+      );
+    }
+
+    await pool.query('COMMIT');
+    return true;
+  } catch (error) {
+    await pool.query('ROLLBACK');
+    console.error('Error updating ShadiLive preferences:', error);
+    throw error;
+  }
+}
+
+static async getProfileStatus(userId) {
+  try {
+    const [user] = await pool.query(
+      'SELECT status FROM users WHERE id = ?',
+      [userId]
+    );
+    return user[0]?.status || 'active';
+  } catch (error) {
+    console.error('Error getting profile status:', error);
+    throw error;
+  }
+}
+
+static async hideProfile(userId, status) {
+  try {
+    await pool.query(
+      'UPDATE users SET status = ? WHERE id = ?',
+      [status, userId]
+    );
+    return true;
+  } catch (error) {
+    console.error('Error hiding profile:', error);
+    throw error;
+  }
+}
+
+static async deleteProfile(userId, password) {
+  try {
+    await pool.query('START TRANSACTION');
+    
+    // First verify password (you'll need to implement password verification)
+    const [user] = await pool.query(
+      'SELECT password FROM users WHERE id = ?',
+      [userId]
+    );
+    
+    if (!user.length) {
+      throw new Error('User not found');
+    }
+    
+    const isPasswordValid = await bcrypt.compare(password, user[0].password);
+    if (!isPasswordValid) {
+      throw new Error('Invalid password');
+    }
+    
+    // Mark as deleted
+    await pool.query(
+      'UPDATE users SET status = "deleted", deleted_at = NOW() WHERE id = ?',
+      [userId]
+    );
+    
+    await pool.query('COMMIT');
+    return true;
+  } catch (error) {
+    await pool.query('ROLLBACK');
+    console.error('Error deleting profile:', error);
+    throw error;
+  }
+}
+
+static async getMyMatches(lookingFor, filters = {}, partnerPrefs = null) {
+  try {
+       if (!partnerPrefs || Object.keys(partnerPrefs).length === 0) {
+      return [];
+    }
+   
+    let baseQuery = `
+      SELECT
+        u.id AS user_id,
+        u.first_name,
+        u.last_name,
+        u.email,
+        u.looking_for,
+        u.dob,
+        u.religion,
+        u.education,
+        u.country,
+        p.*
+      FROM users u
+      JOIN profiles p ON u.id = p.user_id
+      WHERE u.looking_for = ?
+    `;
+ 
+    const queryParams = [lookingFor];
+    const conditions = [];
+ 
+    // UI Filters (AND)
+    for (const [key, values] of Object.entries(filters)) {
+      if (!values || values.length === 0) continue;
+ 
+      switch (key) {
+        case 'verificationStatus':
+          if (values.includes('verified')) conditions.push(`p.verified = 1`);
+          break;
+ 
+        case 'photoSettings':
+          const photoConds = [];
+          if (values.includes('public')) photoConds.push(`p.photo_privacy = 'public'`);
+          if (values.includes('protected')) photoConds.push(`p.photo_privacy = 'protected'`);
+          if (photoConds.length) conditions.push(`(${photoConds.join(' OR ')})`);
+          break;
+ 
+        case 'recentlyJoined':
+          const days = parseInt(values[0]);
+          if (!isNaN(days)) {
+            conditions.push(`p.created_at >= DATE_SUB(NOW(), INTERVAL ? DAY)`);
+            queryParams.push(days);
+          }
+          break;
+ 
+        case 'maritalStatus':
+          conditions.push(`p.marital_status IN (?)`);
+          queryParams.push(values);
+          break;
+ 
+        case 'religion':
+          conditions.push(`u.religion IN (?)`);
+          queryParams.push(values);
+          break;
+ 
+        case 'diet':
+          conditions.push(`p.diet IN (?)`);
+          queryParams.push(values);
+          break;
+ 
+        case 'country':
+          conditions.push(`p.living_in IN (?)`);
+          queryParams.push(values);
+          break;
+ 
+        case 'income':
+          const incomeConditions = [];
+          for (const range of values) {
+            switch (range) {
+              case '0-1':
+                incomeConditions.push(`CAST(SUBSTRING_INDEX(p.income, ' ', 1) AS UNSIGNED) BETWEEN 0 AND 1`);
+                break;
+              case '1-5':
+                incomeConditions.push(`CAST(SUBSTRING_INDEX(p.income, ' ', 1) AS UNSIGNED) BETWEEN 1 AND 5`);
+                break;
+              case '5-10':
+                incomeConditions.push(`CAST(SUBSTRING_INDEX(p.income, ' ', 1) AS UNSIGNED) BETWEEN 5 AND 10`);
+                break;
+              case '10-20':
+                incomeConditions.push(`CAST(SUBSTRING_INDEX(p.income, ' ', 1) AS UNSIGNED) BETWEEN 10 AND 20`);
+                break;
+              case '20+':
+                incomeConditions.push(`CAST(SUBSTRING_INDEX(p.income, ' ', 1) AS UNSIGNED) > 20`);
+                break;
+            }
+          }
+          if (incomeConditions.length > 0) {
+            conditions.push(`(${incomeConditions.join(' OR ')})`);
+          }
+          break;
+      }
+    }
+ 
+    // Partner Preferences (ALL must match)
+    const preferenceConditions = [];
+    if (partnerPrefs) {
+      const basic = partnerPrefs.basic || {};
+      const community = partnerPrefs.community || {};
+      const education = partnerPrefs.education || {};
+      const location = partnerPrefs.location || {};
+      const other = partnerPrefs.otherDetails || {};
+ 
+      // Age Range
+      if (basic.ageRange) {
+        const [minAge, maxAge] = basic.ageRange.split('–').map(a => parseInt(a.trim()));
+        if (!isNaN(minAge) && !isNaN(maxAge)) {
+          preferenceConditions.push(`TIMESTAMPDIFF(YEAR, u.dob, CURDATE()) BETWEEN ${minAge} AND ${maxAge}`);
+        }
+      }
+ 
+      // Height Range
+      if (basic.heightRange) {
+        const [minStr, maxStr] = basic.heightRange.replace(/[′″]/g, `'`).split('–').map(s => s.trim());
+ 
+        const toInches = (h) => {
+          const [ft, inchPart] = h.split("'");
+          const inch = parseInt(inchPart?.replace(/[^\d]/g, '') || '0');
+          return parseInt(ft) * 12 + inch;
+        };
+ 
+        const min = toInches(minStr);
+        const max = toInches(maxStr);
+ 
+        preferenceConditions.push(`
+          (
+            (CAST(SUBSTRING_INDEX(p.height, 'ft', 1) AS UNSIGNED) * 12 +
+             CAST(SUBSTRING_INDEX(SUBSTRING_INDEX(p.height, 'ft ', -1), 'in', 1) AS UNSIGNED))
+             BETWEEN ${min} AND ${max}
+          )
+        `);
+      }
+ 
+      if (basic.maritalStatus && basic.maritalStatus !== 'Open to All') {
+        preferenceConditions.push(`p.marital_status = ${pool.escape(basic.maritalStatus)}`);
+      }
+ 
+      if (community.religion && community.religion !== 'Open to All') {
+        preferenceConditions.push(`u.religion = ${pool.escape(community.religion)}`);
+      }
+ 
+      if (community.community && community.community !== 'Open to All') {
+        preferenceConditions.push(`p.community = ${pool.escape(community.community)}`);
+      }
+ 
+      if (community.motherTongue && community.motherTongue !== 'Open to All') {
+        preferenceConditions.push(`p.mother_tongue = ${pool.escape(community.motherTongue)}`);
+      }
+ 
+     if (education.qualification && education.qualification !== 'Open to All') {
+        const eduMap = {
+          "High School": ["10th", "12th", "High School", "Secondary School"],
+          "Bachelor's Degree": ["B.Tech", "BE", "B.Sc", "BA", "BBA", "B.Com"],
+          "Master's Degree": ["MCA", "MBA", "M.Tech", "ME", "MSc", "MA"],
+          "PhD": ["PhD", "Doctorate", "DPhil"],
+          "Other": ["Diploma", "Associate Degree", "Other"]
+        };
+ 
+        const mappedValues = eduMap[education.qualification];
+        if (mappedValues) {
+          preferenceConditions.push(`u.education IN (${mappedValues.map(val => pool.escape(val)).join(', ')})`);
+        } else {
+          preferenceConditions.push(`u.education = ${pool.escape(education.qualification)}`);
+        }
+      }
+ 
+      if (education.workingWith && education.workingWith !== 'Open to All') {
+        preferenceConditions.push(`p.working_with = ${pool.escape(education.workingWith)}`);
+      }
+ 
+      if (education.profession && education.profession !== 'Open to All') {
+        preferenceConditions.push(`p.profession = ${pool.escape(education.profession)}`);
+      }
+ 
+      if (education.annualIncome && education.annualIncome !== 'Open to All') {
+        const match = education.annualIncome.match(/INR\s*(\d+)\s*lakh.*?(\d+)\s*lakh/i);
+        if (match) {
+          const min = parseInt(match[1]);
+          const max = parseInt(match[2]);
+          preferenceConditions.push(`
+            CAST(SUBSTRING_INDEX(p.income, ' ', 1) AS UNSIGNED) BETWEEN ${min} AND ${max}
+          `);
+        }
+      }
+ 
+ 
+      if (location.country && location.country !== 'Open to All') {
+        const escapedCountry = pool.escape(location.country);
+       preferenceConditions.push(`(p.living_in = ${escapedCountry} OR u.country = ${escapedCountry})`);
+    }
+ 
+      if (other.diet && other.diet !== 'Open to All') {
+        preferenceConditions.push(`p.diet = ${pool.escape(other.diet)}`);
+      }
+ 
+      if (other.profileManagedBy && other.profileManagedBy !== 'Open to All') {
+        preferenceConditions.push(`p.profile_managed_by = ${pool.escape(other.profileManagedBy)}`);
+      }
+    }
+ 
+    // Merge WHERE conditions
+    if (conditions.length > 0) {
+      baseQuery += ' AND ' + conditions.join(' AND ');
+    }
+ 
+    if (preferenceConditions.length > 0) {
+      baseQuery += ' AND ' + preferenceConditions.join(' AND ');
+    }
+ 
+    const [rows] = await pool.query(baseQuery, queryParams);
+    return rows;
+  } catch (error) {
+    console.error('Error fetching new matches:', error);
     throw error;
   }
 }

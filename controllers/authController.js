@@ -79,14 +79,24 @@ exports.generateAndSendPassword = async (email) => {
   }
 };
 
+
 exports.login = async (req, res) => {
   try {
     const { email, password } = req.body;
 
-    // Check if user exists
+    // Check if user exists (including deleted accounts)
     const user = await User.findByEmail(email);
     if (!user) {
       return res.status(401).json({ message: 'Invalid credentials' });
+    }
+
+    // Check if account is deleted but recoverable
+    if (user.status === 'deleted') {
+      const isRecoverable = new Date(user.deleted_at) >= new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+      return res.status(403).json({ 
+        message: 'Account deleted', 
+        recoverable: isRecoverable 
+      });
     }
 
     // Check password
@@ -110,3 +120,64 @@ exports.login = async (req, res) => {
     res.status(500).json({ message: 'Server error' });
   }
 };
+
+exports.recoverAccount = async (req, res) => {
+  try {
+    const { email, password } = req.body;
+    
+    // Verify credentials first
+    const user = await User.findByEmail(email);
+    if (!user) {
+      return res.status(401).json({ message: 'Invalid credentials' });
+    }
+    
+    const isMatch = await bcrypt.compare(password, user.password);
+    if (!isMatch) {
+      return res.status(401).json({ message: 'Invalid credentials' });
+    }
+
+    // Attempt recovery
+    const recovered = await User.recoverAccount(email);
+    if (!recovered) {
+      return res.status(400).json({ 
+        message: 'Account cannot be recovered (either not deleted or recovery period expired)' 
+      });
+    }
+
+    res.status(200).json({ success:true,message: 'Account recovered successfully' });
+  } catch (error) {
+    res.status(500).json({ success:false,message: 'Server error' });
+  }
+};
+
+// exports.login = async (req, res) => {
+//   try {
+//     const { email, password } = req.body;
+
+//     // Check if user exists
+//     const user = await User.findByEmail(email);
+//     if (!user) {
+//       return res.status(401).json({ message: 'Invalid credentials' });
+//     }
+
+//     // Check password
+//     const isMatch = await bcrypt.compare(password, user.password);
+//     if (!isMatch) {
+//       return res.status(401).json({ message: 'Invalid credentials' });
+//     }
+
+//     // Create JWT token
+//     const token = jwt.sign({ id: user.user_id }, process.env.JWT_SECRET, {
+//       expiresIn: process.env.JWT_EXPIRE
+//     });
+
+//     res.status(200).json({
+//       success: true,
+//       token,
+//       user
+//     });
+//   } catch (error) {
+//     console.error(error);
+//     res.status(500).json({ message: 'Server error' });
+//   }
+// };
