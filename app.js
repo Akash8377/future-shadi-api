@@ -10,6 +10,8 @@ const { formatDateTime } = require('./utils/datetimeUtils');
 
 const authRoutes = require('./routes/authRoutes');
 const profileRoutes = require('./routes/profileRoutes');
+const searchRoutes = require('./routes/searchRoutes');
+const inboxRoutes = require('./routes/inboxRoutes');
 const errorMiddleware = require('./middlewares/errorMiddleware');
 
 dotenv.config();
@@ -31,6 +33,8 @@ app.use(express.static('public'));
 
 app.use('/api/auth', authRoutes);
 app.use('/api/profile', profileRoutes);
+app.use('/api/search', searchRoutes);
+app.use('/api/inbox', inboxRoutes);
 
 // Socket.IO
 const io = new Server(server, {
