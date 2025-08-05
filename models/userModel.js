@@ -13,11 +13,26 @@ static async create(userData) {
   // Ensure password is hashed if provided, or empty string if not
   const passwordToStore = password || "";
 
-  const [result] = await pool.query(
-      'INSERT INTO users (first_name, last_name, email, phone, password, dob, religion, education, country, email_verified, phone_verified) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
-      [firstName, lastName, email, phone, passwordToStore, dob, religion, qualification, livingIn, 1, 1]
+  // Get the maximum existing profile ID
+  const [maxIdRows] = await pool.query(
+    'SELECT MAX(profileId) as maxProfileId FROM users WHERE profileId LIKE "FS%"'
   );
-  return result.insertId;
+  
+  let nextProfileId = "FS00000001"; // Default starting ID
+  
+  if (maxIdRows[0].maxProfileId) {
+    const maxId = maxIdRows[0].maxProfileId;
+    const numericPart = parseInt(maxId.replace("FS", ""), 10);
+    const nextNumber = numericPart + 1;
+    nextProfileId = `FS${nextNumber.toString().padStart(8, '0')}`;
+  }
+
+  const [result] = await pool.query(
+    'INSERT INTO users (profile_id, first_name, last_name, email, phone, password, dob, religion, education, country, email_verified, phone_verified) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+    [nextProfileId, firstName, lastName, email, phone, passwordToStore, dob, religion, qualification, livingIn, 1, 1]
+  );
+  
+   return result.insertId
 }
 
   static async findByEmail(email) {

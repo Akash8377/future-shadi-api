@@ -149,35 +149,3 @@ exports.recoverAccount = async (req, res) => {
     res.status(500).json({ success:false,message: 'Server error' });
   }
 };
-
-// exports.login = async (req, res) => {
-//   try {
-//     const { email, password } = req.body;
-
-//     // Check if user exists
-//     const user = await User.findByEmail(email);
-//     if (!user) {
-//       return res.status(401).json({ message: 'Invalid credentials' });
-//     }
-
-//     // Check password
-//     const isMatch = await bcrypt.compare(password, user.password);
-//     if (!isMatch) {
-//       return res.status(401).json({ message: 'Invalid credentials' });
-//     }
-
-//     // Create JWT token
-//     const token = jwt.sign({ id: user.user_id }, process.env.JWT_SECRET, {
-//       expiresIn: process.env.JWT_EXPIRE
-//     });
-
-//     res.status(200).json({
-//       success: true,
-//       token,
-//       user
-//     });
-//   } catch (error) {
-//     console.error(error);
-//     res.status(500).json({ message: 'Server error' });
-//   }
-// };

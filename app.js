@@ -12,6 +12,7 @@ const authRoutes = require('./routes/authRoutes');
 const profileRoutes = require('./routes/profileRoutes');
 const searchRoutes = require('./routes/searchRoutes');
 const inboxRoutes = require('./routes/inboxRoutes');
+const notificationRoutes = require('./routes/notificationRoutes');
 const errorMiddleware = require('./middlewares/errorMiddleware');
 
 dotenv.config();
@@ -35,6 +36,7 @@ app.use('/api/auth', authRoutes);
 app.use('/api/profile', profileRoutes);
 app.use('/api/search', searchRoutes);
 app.use('/api/inbox', inboxRoutes);
+app.use('/api/notifications', notificationRoutes);
 
 // Socket.IO
 const io = new Server(server, {

@@ -25,7 +25,8 @@ exports.searchProfiles = async (req, res) => {
       diet,
       keywords,
       page = 1,
-      limit = 20
+      limit = 20,
+      skipRecentSave = false
     } = req.query;
 
     // Validate required parameters
@@ -121,12 +122,6 @@ exports.searchProfiles = async (req, res) => {
       queryParams.push(country, country);
     }
 
-    // State filter
-    // if (state && state !== 'Doesn\'t Matter') {
-    //   conditions.push(`p.city = ?`);
-    //   queryParams.push(state);
-    // }
-
     // Qualification filter
     if (qualification && qualification !== 'Open for All') {
       conditions.push(`u.education = ?`);
@@ -188,6 +183,21 @@ exports.searchProfiles = async (req, res) => {
     const [totalResult] = await pool.query(countQuery, countParams);
     const total = totalResult[0]?.total || 0;
 
+    if (!skipRecentSave && req.user && req.user.id) {
+      try {
+        await pool.query(
+          'INSERT INTO recent_searches (user_id, search_type, search_params) VALUES (?, ?, ?)',
+          [
+            req.user.id,
+            searchtype || 'Basic',
+            JSON.stringify(req.query)
+          ]
+        );
+      } catch (saveError) {
+        console.error('Error saving recent search:', saveError);
+      }
+    }
+
     return res.status(200).json({
       success: true,
       data: profiles,
@@ -206,7 +216,7 @@ exports.searchProfiles = async (req, res) => {
       message: "Internal server error"
     });
   }
-};
+};  
 
 function formatQuery(sql, params) {
   let formatted = sql;
@@ -243,11 +253,6 @@ exports.searchProfilesFilter = async (req, res) => {
       limit = 20,
       recentlyJoined,
     } = req.body;
-    console.log("////////////////////////////////////////////////////////////////////////////////");
-    console.log("////////////////////////////////////////////////////////////////////////////////");
-    console.log("Search Filter Parameters:", req.body);
-    console.log("////////////////////////////////////////////////////////////////////////////////");
-    console.log("////////////////////////////////////////////////////////////////////////////////");
     if (!looking_for || !['Bride', 'Groom'].includes(looking_for)) {
       return res.status(400).json({
         success: false,
@@ -306,38 +311,29 @@ exports.searchProfilesFilter = async (req, res) => {
       }
     }
 
-    if (maritalStatus && maritalStatus !== 'Open for All') {
+    if (maritalStatus && maritalStatus.length > 0 && maritalStatus[0] !== 'Open for All') {
       if (Array.isArray(maritalStatus)) {
         conditions.push(`p.marital_status IN (?)`);
         queryParams.push(maritalStatus);
-      } else {
-        conditions.push(`p.marital_status = ?`);
-        queryParams.push(maritalStatus);
       }
     }
 
-    if (religion && religion !== 'Open for All') {
+    if (religion && religion.length > 0 && religion[0] !== 'Open for All') {
       if (Array.isArray(religion)) {
         conditions.push(`u.religion IN (?)`);
         queryParams.push(religion);
-      } else {
-        conditions.push(`u.religion = ?`);
-        queryParams.push(religion);
       }
     }
 
-    if (motherTongue && motherTongue !== 'Open for All' && motherTongue.length > 0) {
+    if (motherTongue && motherTongue[0] !== 'Open for All' && motherTongue.length > 0) {
       const tongues = Array.isArray(motherTongue) ? motherTongue : [motherTongue];
       conditions.push(`p.mother_tongue IN (?)`);
       queryParams.push(tongues);
     }
 
-    if (community && community !== 'Open for All') {
+    if (community && community.length > 0 && community[0] !== 'Open for All') {
       if (Array.isArray(community)) {
         conditions.push(`p.community IN (?)`);
-        queryParams.push(community);
-      } else {
-        conditions.push(`p.community = ?`);
         queryParams.push(community);
       }
     }
@@ -345,51 +341,36 @@ exports.searchProfilesFilter = async (req, res) => {
       if (Array.isArray(professionArea)) {
         conditions.push(`p.profession IN (?)`);
         queryParams.push(professionArea);
-      } else {
-        conditions.push(`p.profession = ?`);
-        queryParams.push(professionArea);
       }
     }
     if (diet && diet.length>0 && diet[0] !== 'Open for All') {
       if (Array.isArray(diet)) {
         conditions.push(`p.diet IN (?)`);
         queryParams.push(diet);
-      } else {
-        conditions.push(`p.diet = ?`);
-        queryParams.push(diet);
       }
     }
     if (workingWith && workingWith.length>0 && workingWith[0] !== 'Open for All') {
-      if (Array.isArray(professionArea)) {
+      if (Array.isArray(workingWith)) {
         conditions.push(`p.work_type IN (?)`);
-        queryParams.push(workingWith);
-      } else {
-        conditions.push(`p.work_type = ?`);
         queryParams.push(workingWith);
       }
     }
-    if (qualification && qualification.length>0  && qualification[0] !== 'Open for All') {
+    if (qualification && qualification.length > 0 && qualification[0] !== 'Open for All') {
       if (Array.isArray(qualification)) {
         conditions.push(`p.qualification IN (?)`);
-        queryParams.push(qualification);
-      } else {
-        conditions.push(`p.qualification = ?`);
         queryParams.push(qualification);
       }
     }
 
-    if (country && country !== 'Open for All') {
+    if (country && country.length > 0 && country[0] !== 'Open for All') {
       if (Array.isArray(country)) {
         conditions.push(`(p.living_in IN (?) OR u.country IN (?))`);
-        queryParams.push(country, country);
-      } else {
-        conditions.push(`(p.living_in = ? OR u.country = ?)`);
         queryParams.push(country, country);
       }
     }
 
     // Income renamed from annual_income to income
-    if (annualIncome && annualIncome !== 'Open for All') {
+    if (annualIncome && annualIncome.length > 0 && annualIncome[0] !== 'Open for All') {
       if (Array.isArray(annualIncome)) {
         const incomeConditions = annualIncome.map(range => {
           if (range === '0-1') return `(CAST(SUBSTRING_INDEX(p.income, ' ', 1) AS UNSIGNED) <= 1)`;
@@ -402,18 +383,6 @@ exports.searchProfilesFilter = async (req, res) => {
 
         if (incomeConditions.length > 0) {
           conditions.push(`(${incomeConditions.join(' OR ')})`);
-        }
-      } else {
-        if (annualIncome === '0-1') {
-          conditions.push(`(CAST(SUBSTRING_INDEX(p.income, ' ', 1) AS UNSIGNED) <= 1)`);
-        } else if (annualIncome === '1-5') {
-          conditions.push(`(CAST(SUBSTRING_INDEX(p.income, ' ', 1) AS UNSIGNED) BETWEEN 1 AND 5)`);
-        } else if (annualIncome === '5-10') {
-          conditions.push(`(CAST(SUBSTRING_INDEX(p.income, ' ', 1) AS UNSIGNED) BETWEEN 5 AND 10)`);
-        } else if (annualIncome === '10-20') {
-          conditions.push(`(CAST(SUBSTRING_INDEX(p.income, ' ', 1) AS UNSIGNED) BETWEEN 10 AND 20)`);
-        } else if (annualIncome === '20+') {
-          conditions.push(`(CAST(SUBSTRING_INDEX(p.income, ' ', 1) AS UNSIGNED) >= 20)`);
         }
       }
     }
@@ -460,6 +429,101 @@ exports.searchProfilesFilter = async (req, res) => {
   } catch (error) {
     console.error("Error in searchProfiles:", error);
     return res.status(500).json({
+      success: false,
+      message: "Internal server error"
+    });
+  }
+};
+
+exports.searchProfileId = async (req, res) => {
+  try {
+    const { profileId } = req.params; // Changed from req.query to req.params
+
+    // Build the base query
+    let baseQuery = `
+      SELECT 
+        u.id AS user_id,
+        u.first_name,
+        u.last_name,
+        u.email,
+        u.looking_for,
+        u.dob,
+        u.religion,
+        u.education,
+        u.country,
+        u.profileId,
+        p.*
+      FROM users u
+      JOIN profiles p ON u.id = p.user_id
+      WHERE u.profileId = ?
+    `;
+
+    const queryParams = [profileId];    
+    // Execute the query
+    const [profile] = await pool.query(baseQuery, queryParams);
+    
+    if (!profile || profile.length === 0) {
+      return res.status(200).json({
+        success: false,
+        message: "Profile not found"
+      });
+    }
+    return res.status(200).json({
+      success: true,
+      data: profile[0], // Return the first (and should be only) profile
+    });
+
+  } catch (error) {
+    console.error("Error in searchProfile:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Internal server error"
+    });
+  }
+};
+
+// Recent Searches
+exports.getRecentSearches = async (req, res) => {
+  try {
+    const [searches] = await pool.query(
+      'SELECT * FROM recent_searches WHERE user_id = ? ORDER BY created_at DESC LIMIT 10',
+      [req.user.id]
+    );
+    
+    res.status(200).json({
+      success: true,
+      data: searches
+    });
+  } catch (error) {
+    console.error("Error fetching recent searches:", error);
+    res.status(500).json({
+      success: false,
+      message: "Internal server error"
+    });
+  }
+};
+
+exports.deleteRecentSearch = async (req, res) => {
+  try {
+    const [result] = await pool.query(
+      'DELETE FROM recent_searches WHERE id = ? AND user_id = ?',
+      [req.params.id, req.user.id]
+    );
+    
+    if (result.affectedRows === 0) {
+      return res.status(404).json({
+        success: false,
+        message: "Search not found or not owned by user"
+      });
+    }
+    
+    res.status(200).json({
+      success: true,
+      message: "Search deleted successfully"
+    });
+  } catch (error) {
+    console.error("Error deleting recent search:", error);
+    res.status(500).json({
       success: false,
       message: "Internal server error"
     });
