@@ -10,10 +10,11 @@ exports.sendEmailOTP = async (req, res) => {
     }
 
     const { email } = req.body;
+    console.log("Sending OTP to email:", email);
     
     // Check if email is already verified/registered
     const existingUser = await User.findByEmail(email);
-    if (existingUser && existingUser.email_verified) {
+    if (existingUser && existingUser?.email_verified) {
       return res.status(400).json({ 
         success: false,
         message: "Email is already registered" 
@@ -21,6 +22,7 @@ exports.sendEmailOTP = async (req, res) => {
     }
 
     // Generate and send OTP
+    console.log("Generating OTP for email:", email);
     const otp = await OtpService.generateAndSendEmailOTP(email);
 
     res.status(200).json({

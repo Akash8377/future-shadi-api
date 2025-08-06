@@ -45,7 +45,9 @@ exports.registerProfile = async (req, res) => {
       profession,
       profileDescription,
       excludeFromAffiliates,
-      motherTongue
+      motherTongue,
+      email_verified = 1,
+      phone_verified = 0,
     } = req.body;
 
     // Check if user exists
@@ -72,6 +74,8 @@ exports.registerProfile = async (req, res) => {
       birthDay,
       birthMonth,
       birthYear,
+      email_verified,
+      phone_verified,
     };
 
     const userId = await User.create(userData);

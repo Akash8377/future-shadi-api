@@ -5,6 +5,7 @@ const inboxController = require('../controllers/inboxController');
 // Route to get notifications where user is the receiver
 router.get('/receiver/:user_id', inboxController.getNotificationsForReceiver);
 
+router.get('/preference-receiver/:user_id', inboxController.getPreferenceForReceiver);
 // Route to get notifications where user is the sender
 router.get('/sender/:user_id', inboxController.getSentRequests);
 

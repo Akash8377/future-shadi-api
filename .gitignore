@@ -6,8 +6,8 @@
 /build
 
 # local env files
-.env
-.env.*.local
+# .env
+# .env.*.local
 
 # Log files
 npm-debug.log*

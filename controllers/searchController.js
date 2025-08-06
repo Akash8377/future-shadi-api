@@ -3,7 +3,7 @@ const pool = require('../config/db');
 exports.searchProfiles = async (req, res) => {
   try {
     const {
-      searchtype, 
+      searchType,
       looking_for,
       ageFrom,
       ageTo,
@@ -184,12 +184,13 @@ exports.searchProfiles = async (req, res) => {
     const total = totalResult[0]?.total || 0;
 
     if (!skipRecentSave && req.user && req.user.id) {
+      console.log("SearchType:", searchType);
       try {
         await pool.query(
           'INSERT INTO recent_searches (user_id, search_type, search_params) VALUES (?, ?, ?)',
           [
             req.user.id,
-            searchtype || 'Basic',
+            searchType || 'Basic',
             JSON.stringify(req.query)
           ]
         );

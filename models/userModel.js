@@ -3,8 +3,8 @@ const bcrypt = require("bcryptjs");
 
 class User {
 static async create(userData) {
-  const { firstName, lastName, email, phone, password, religion, qualification, livingIn, birthDay, birthMonth, birthYear } = userData;
-  
+  const { firstName, lastName, email, phone, password, religion, qualification, livingIn, birthDay, birthMonth, birthYear, email_verified, phone_verified } = userData;
+
   // Construct proper MySQL DATE format (YYYY-MM-DD)
   const dob = birthYear && birthMonth && birthDay 
       ? `${birthYear}-${birthMonth.toString().padStart(2, '0')}-${birthDay.toString().padStart(2, '0')}`
@@ -29,13 +29,14 @@ static async create(userData) {
 
   const [result] = await pool.query(
     'INSERT INTO users (profile_id, first_name, last_name, email, phone, password, dob, religion, education, country, email_verified, phone_verified) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
-    [nextProfileId, firstName, lastName, email, phone, passwordToStore, dob, religion, qualification, livingIn, 1, 1]
+    [nextProfileId, firstName, lastName, email, phone, passwordToStore, dob, religion, qualification, livingIn, email_verified, phone_verified]
   );
   
    return result.insertId
 }
 
   static async findByEmail(email) {
+    console.log("Finding user by email:", email);
   const [rows] = await pool.query(
     'SELECT users.id AS user_id, profiles.id AS profile_id, users.*, profiles.* FROM users LEFT JOIN profiles ON profiles.user_id = users.id WHERE users.email = ?',
     [email]
@@ -686,7 +687,7 @@ static async updateProfileSettings(userId, { phone, contactStatus, astro_display
     // Update phone in users table if provided
     if (phone) {
       await pool.query(
-        'UPDATE users SET phone = ? WHERE id = ?',
+        'UPDATE users SET phone = ? and phone_verified = 1 WHERE id = ?',
         [phone, userId]
       );
     }
