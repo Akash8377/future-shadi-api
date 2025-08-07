@@ -22,8 +22,6 @@ exports.getPreferenceForReceiver = async (req, res) => {
       partnerPreferenceParam = req.body.partner_preference;
     }
 
-    console.log('Raw partner_preference param from request:', partnerPreferenceParam);
-
     // Try to parse override (but allow fallback to stored)
     let parsedOverride = null;
     if (partnerPreferenceParam) {

@@ -521,41 +521,69 @@ static async getNewMatchesByNearMe(lookingFor, nearMe, filters = {}, loggedInUse
 
     static async getShortlisted(lookingFor, filters = {}, userId) {
   try {
-    let baseQuery = `
-      SELECT
-        u.id AS user_id,
-        u.first_name,
-        u.last_name,
-        u.email,
-        u.looking_for,
-        u.dob,
-        u.religion,
-        u.education,
-        u.country,
-        p.*,
-        n.created_at AS notification_time,
-        n.status AS notification_status,
+    // let baseQuery = `
+    //   SELECT
+    //     u.id AS user_id,
+    //     u.first_name,
+    //     u.last_name,
+    //     u.email,
+    //     u.looking_for,
+    //     u.dob,
+    //     u.religion,
+    //     u.education,
+    //     u.country,
+    //     p.*,
+    //     n.created_at AS notification_time,
+    //     n.status AS notification_status,
 
-        CASE 
-          WHEN EXISTS (
-            SELECT 1 FROM notifications 
-            WHERE sender_user_id = ? AND receiver_user_id = u.id
-          ) 
-          AND EXISTS (
-            SELECT 1 FROM notifications 
-            WHERE sender_user_id = u.id AND receiver_user_id = ?
-          )
-          THEN true
-          ELSE false
-        END AS connectionRequest
+    //     CASE 
+    //       WHEN EXISTS (
+    //         SELECT 1 FROM notifications 
+    //         WHERE sender_user_id = ? AND receiver_user_id = u.id
+    //       ) 
+    //       AND EXISTS (
+    //         SELECT 1 FROM notifications 
+    //         WHERE sender_user_id = u.id AND receiver_user_id = ?
+    //       )
+    //       THEN true
+    //       ELSE false
+    //     END AS connectionRequest
 
-      FROM users u
-      JOIN profiles p ON u.id = p.user_id
-      JOIN notifications n ON u.id = n.sender_user_id
-      WHERE u.looking_for = ?
-        AND n.status = 'accepted'
-    `;
+    //   FROM users u
+    //   JOIN profiles p ON u.id = p.user_id
+    //   JOIN notifications n ON u.id = n.sender_user_id
+    //   WHERE u.looking_for = ?
+    //     AND n.status = 'accepted'
+    // `;
+let baseQuery = `
+  SELECT
+    u.id AS user_id,
+    u.first_name,
+    u.last_name,
+    u.email,
+    u.looking_for,
+    u.dob,
+    u.religion,
+    u.education,
+    u.country,
+    p.*,
+    n1.created_at AS your_request_time,
+    n2.created_at AS their_request_time,
+    n1.status AS your_request_status,
+    n2.status AS their_request_status,
+    
+    CASE 
+      WHEN n1.id IS NOT NULL OR n2.id IS NOT NULL THEN true
+      ELSE false
+    END AS connectionRequest
 
+  FROM users u
+  JOIN profiles p ON u.id = p.user_id
+  LEFT JOIN notifications n1 ON n1.sender_user_id = ? AND n1.receiver_user_id = u.id AND n1.status = 'accepted'
+  LEFT JOIN notifications n2 ON n2.sender_user_id = u.id AND n2.receiver_user_id = ? AND n2.status = 'accepted'
+  WHERE u.looking_for = ?
+    AND (n1.id IS NOT NULL OR n2.id IS NOT NULL)
+`;
     const queryParams = [userId, userId, lookingFor];
     const conditions = [];
 

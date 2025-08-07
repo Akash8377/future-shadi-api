@@ -13,7 +13,7 @@ router.put('/accept/:id', inboxController.acceptNotification);
 
 router.get('/accepted-receiver/:receiverUserId', inboxController.acceptedReceiver);
 
-router.put('/deleted/:id', inboxController.acceptNotification);
+router.put('/deleted/:id', inboxController.deleteNotification);
 
 router.get('/deleted-receiver/:receiverUserId', inboxController.deletedReceiver);
 module.exports = router;
