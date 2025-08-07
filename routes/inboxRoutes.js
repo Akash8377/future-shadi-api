@@ -15,5 +15,5 @@ router.get('/accepted-receiver/:receiverUserId', inboxController.acceptedReceive
 
 router.put('/deleted/:id', inboxController.acceptNotification);
 
-router.get('/deleted-receiver/:receiverUserId', inboxController.acceptedReceiver);
+router.get('/deleted-receiver/:receiverUserId', inboxController.deletedReceiver);
 module.exports = router;

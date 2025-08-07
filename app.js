@@ -22,7 +22,7 @@ const authRoutes = require('./routes/authRoutes');
 const profileRoutes = require('./routes/profileRoutes');
 const notificationRoutes = require('./routes/notificationRoutes');
 const inboxRoutes = require('./routes/inboxRoutes');
-// const matchesRoutes = require('./routes/matchesRoutes');
+const matchesRoutes = require('./routes/matchesRoutes');
 const galleryRoutes = require('./routes/galleryRoutes');
 const searchRoutes = require('./routes/searchRoutes');
 const app = express();
@@ -45,7 +45,7 @@ app.use('/api/auth', authRoutes);
 app.use('/api/profile', profileRoutes, galleryRoutes);
 app.use('/api/notifications', notificationRoutes);
 app.use('/api/inbox', inboxRoutes);
-// app.use('/api/matches', matchesRoutes);
+app.use('/api/matches', matchesRoutes);
 app.use('/api/search', searchRoutes);
 
 // API: Snapshot of online users

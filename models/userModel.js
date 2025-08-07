@@ -683,11 +683,10 @@ static async updateProfileSettings(userId, { phone, contactStatus, astro_display
   try {
     // Start transaction
     await pool.query('START TRANSACTION');
-
     // Update phone in users table if provided
     if (phone) {
       await pool.query(
-        'UPDATE users SET phone = ? and phone_verified = 1 WHERE id = ?',
+        'UPDATE users SET phone = ?, phone_verified = 1 WHERE id = ?',
         [phone, userId]
       );
     }
