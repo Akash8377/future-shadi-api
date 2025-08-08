@@ -617,6 +617,143 @@ const InboxModel = {
 
   return enrichedRows;
   },
+
+   async getChatUsers(lookingFor, filters = {}, loggedInUserId = null) {
+      try {
+        let baseQuery = `
+                  SELECT
+                      u.id AS user_id,
+                      u.first_name,
+                      u.last_name,
+                      u.email,
+                      u.looking_for,
+                      u.dob,
+                      u.religion,
+                      u.phone,
+                      u.education,
+                      u.country,
+                      p.*,
+                      CASE
+                      WHEN n.id IS NOT NULL
+                          AND n.sender_user_id = ?
+                          AND n.receiver_user_id = u.id
+                          AND n.status IN ('pending', 'accepted')
+                      THEN true
+                      ELSE false
+                      END AS connectionRequest
+                      FROM users u
+                      JOIN profiles p ON u.id = p.user_id
+                      LEFT JOIN notifications n
+                      ON n.sender_user_id = ? AND n.receiver_user_id = u.id
+                      WHERE u.looking_for = ?
+                  `;
+         const queryParams = [loggedInUserId, loggedInUserId, lookingFor];
+ 
+          const conditions = [];
+     
+          // Process each filter
+          for (const [key, values] of Object.entries(filters)) {
+          if (!values || values.length === 0) continue;
+     
+          switch(key) {
+              case 'verificationStatus':
+              if (values.includes('verified')) {
+                  conditions.push(`p.verified = 1`);
+              }
+              break;
+             
+              case 'photoSettings':
+              if (values.includes('public')) {
+                  conditions.push(`p.photo_privacy = 'public'`);
+              }
+              if (values.includes('protected')) {
+                  conditions.push(`p.photo_privacy = 'protected'`);
+              }
+              break;
+             
+              case 'recentlyJoined':
+              // Only one value for radio buttons
+              const days = parseInt(values[0]);
+              if (!isNaN(days)) {
+                  conditions.push(`p.created_at >= DATE_SUB(NOW(), INTERVAL ? DAY)`);
+                  queryParams.push(days);
+              }
+              break;
+             
+              case 'maritalStatus':
+              conditions.push(`p.marital_status IN (?)`);
+              queryParams.push(values);
+              break;
+             
+              case 'religion':
+              conditions.push(`u.religion IN (?)`);
+              queryParams.push(values);
+              break;
+             
+              case 'diet':
+              conditions.push(`p.diet IN (?)`);
+              queryParams.push(values);
+              break;
+             
+              case 'country':
+              conditions.push(`p.living_in IN (?)`);
+              queryParams.push(values);
+              break;
+             
+              case 'income':
+              const incomeConditions = [];
+     
+              for (const range of values) {
+                  switch (range) {
+                  case '0-1':
+                      incomeConditions.push(`CAST(SUBSTRING_INDEX(p.income, ' ', 1) AS UNSIGNED) BETWEEN 0 AND 1`);
+                      break;
+                  case '1-5':
+                      incomeConditions.push(`CAST(SUBSTRING_INDEX(p.income, ' ', 1) AS UNSIGNED) BETWEEN 1 AND 5`);
+                      break;
+                  case '5-10':
+                      incomeConditions.push(`CAST(SUBSTRING_INDEX(p.income, ' ', 1) AS UNSIGNED) BETWEEN 5 AND 10`);
+                      break;
+                  case '10-20':
+                      incomeConditions.push(`CAST(SUBSTRING_INDEX(p.income, ' ', 1) AS UNSIGNED) BETWEEN 10 AND 20`);
+                      break;
+                  case '20+':
+                      incomeConditions.push(`CAST(SUBSTRING_INDEX(p.income, ' ', 1) AS UNSIGNED) > 20`);
+                      break;
+                  }
+              }
+     
+              if (incomeConditions.length > 0) {
+                  conditions.push(`(${incomeConditions.join(' OR ')})`);
+              }
+              break;
+     
+          }
+          }
+     
+          if (conditions.length > 0) {
+          baseQuery += ' AND ' + conditions.join(' AND ');
+          }
+     
+           const [rows] = await pool.query(baseQuery, queryParams);
+          // return rows;
+ 
+              const enrichedRows = rows.map((row) => {
+              const userId = String(row.user_id); // Make sure it's string
+              return {
+                  ...row,
+                  online: onlineUsers.has(userId),
+                  last_seen: lastSeenMap.get(userId) || null,
+                  connectionRequest: !!row.connectionRequest,
+              };
+              });
+ 
+          return enrichedRows;
+      } catch (error) {
+          console.error('Error fetching new matches:', error);
+          throw error;
+      }
+    }
 };
 
 module.exports = InboxModel;

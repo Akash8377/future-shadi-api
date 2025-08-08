@@ -16,4 +16,6 @@ router.get('/accepted-receiver/:receiverUserId', inboxController.acceptedReceive
 router.put('/deleted/:id', inboxController.deleteNotification);
 
 router.get('/deleted-receiver/:receiverUserId', inboxController.deletedReceiver);
+
+router.get("/chat-users", inboxController.newChatUsers);
 module.exports = router;

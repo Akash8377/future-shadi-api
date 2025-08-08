@@ -135,3 +135,37 @@ exports.acceptNotification = async (req, res) => {
       res.status(500).json({ error: 'Internal Server Error' });
     }
   }
+
+  exports.newChatUsers = async (req, res) => {
+  try {
+    const { user_id, looking_for, ...filters } = req.query;
+ 
+    if (!looking_for || !['Bride', 'Groom'].includes(looking_for)) {
+      return res.status(400).json({ message: "Invalid 'looking_for' value" });
+    }
+ 
+    const processedFilters = {};
+ 
+    for (let [key, value] of Object.entries(filters)) {
+      // Remove brackets from keys like verificationStatus[]
+      key = key.replace(/\[\]$/, '');
+ 
+      // Convert comma-separated strings to arrays
+      if (typeof value === 'string') {
+        value = value.split(',');
+      }
+ 
+      // Ignore "all"
+      if (value.includes('all')) continue;
+ 
+      processedFilters[key] = value;
+    }
+ 
+   const users = await Inbox.getChatUsers(looking_for, processedFilters, user_id);
+ 
+    return res.status(200).json({ success: true, users });
+  } catch (error) {
+    console.error("Error fetching new matches by looking_for:", error);
+    return res.status(500).json({ success: false, message: "Server Error" });
+  }
+};
