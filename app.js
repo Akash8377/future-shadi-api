@@ -1,86 +1,149 @@
-
-
-require('dotenv').config();
-const express = require('express');
-const cors = require('cors');
-const helmet = require('helmet');
-const morgan = require('morgan');
-const http = require('http');
-const { Server } = require('socket.io');
-const jwt = require('jsonwebtoken');
-const fs = require('fs');
-const { formatDateTime } = require('./utils/datetimeUtils');
+require("dotenv").config();
+const express = require("express");
+const cors = require("cors");
+const helmet = require("helmet");
+const morgan = require("morgan");
+const http = require("http");
+const { Server } = require("socket.io");
+const jwt = require("jsonwebtoken");
+const fs = require("fs");
+const { formatDateTime } = require("./utils/datetimeUtils");
 const {
   onlineUsers,
   lastSeenMap,
   offlineMessages,
   offlineNotifications,
-} = require('./utils/onlineTracker');
+  updateOnlineStatus,
+} = require("./utils/onlineTracker");
 
 // Routes
-const authRoutes = require('./routes/authRoutes');
-const profileRoutes = require('./routes/profileRoutes');
-const notificationRoutes = require('./routes/notificationRoutes');
-const inboxRoutes = require('./routes/inboxRoutes');
-const matchesRoutes = require('./routes/matchesRoutes');
-const galleryRoutes = require('./routes/galleryRoutes');
-const searchRoutes = require('./routes/searchRoutes');
+const authRoutes = require("./routes/authRoutes");
+const profileRoutes = require("./routes/profileRoutes");
+const notificationRoutes = require("./routes/notificationRoutes");
+const inboxRoutes = require("./routes/inboxRoutes");
+const matchesRoutes = require("./routes/matchesRoutes");
+const galleryRoutes = require("./routes/galleryRoutes");
+const searchRoutes = require("./routes/searchRoutes");
 const app = express();
 const server = http.createServer(app);
-
+const db = require("./config/db");
 // Middlewares
 app.use(cors());
 app.use(helmet());
-app.use(morgan('dev'));
+app.use(morgan("dev"));
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
-app.use('/uploads', (req, res, next) => {
-  res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
+app.use("/uploads", (req, res, next) => {
+  res.setHeader("Cross-Origin-Resource-Policy", "cross-origin");
   next();
 });
-app.use(express.static('public'));
+app.use(express.static("public"));
 
 // Routes
-app.use('/api/auth', authRoutes);
-app.use('/api/profile', profileRoutes, galleryRoutes);
-app.use('/api/notifications', notificationRoutes);
-app.use('/api/inbox', inboxRoutes);
-app.use('/api/matches', matchesRoutes);
-app.use('/api/search', searchRoutes);
+app.use("/api/auth", authRoutes);
+app.use("/api/profile", profileRoutes, galleryRoutes);
+app.use("/api/notifications", notificationRoutes);
+app.use("/api/inbox", inboxRoutes);
+app.use("/api/matches", matchesRoutes);
+app.use("/api/search", searchRoutes);
 
 // API: Snapshot of online users
-app.get('/api/online-status', (req, res) => {
+app.get("/api/online-status", (req, res) => {
   res.json({
     online: Array.from(onlineUsers.keys()),
     lastSeen: Object.fromEntries(lastSeenMap),
   });
 });
 
+// Message History Endpoint
+app.get("/api/messages/history", async (req, res) => {
+  try {
+    const { user1, user2 } = req.query;
+    if (!user1 || !user2) {
+      return res.status(400).json({ error: "Missing user IDs" });
+    }
+
+    const [messages] = await db.query(
+      `
+      SELECT * FROM messages 
+      WHERE (sender_id = ? AND receiver_id = ?)
+      OR (sender_id = ? AND receiver_id = ?)
+      ORDER BY sent_at ASC
+    `,
+      [user1, user2, user2, user1]
+    );
+
+    res.json({ messages });
+  } catch (error) {
+    console.error("Error fetching messages:", error);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+app.post("/api/messages/send", async (req, res) => {
+  try {
+    const { sender_id, receiver_id, content } = req.body;
+
+    if (!sender_id || !receiver_id || !content) {
+      return res.status(400).json({ error: "Missing required fields" });
+    }
+
+    // Insert message into database
+    const [result] = await db.query(
+      `INSERT INTO messages (sender_id, receiver_id, content) 
+       VALUES (?, ?, ?)`,
+      [sender_id, receiver_id, content]
+    );
+
+    // Get the complete message record
+    const [messages] = await db.query(
+      `SELECT * FROM messages WHERE id = ?`,
+      [result.insertId]
+    );
+    
+    const newMessage = messages[0];
+    
+    // Broadcast the message in real-time
+    const io = req.app.get('io');
+    
+    // Send to receiver
+    io.to(`user_${receiver_id}`).emit('receive-message', newMessage);
+    
+    // Also send to sender (for multi-device sync)
+    io.to(`user_${sender_id}`).emit('receive-message', newMessage);
+
+    res.json({ message: newMessage });
+  } catch (error) {
+    console.error("Error sending message:", error);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
 // Socket.IO Setup
 const io = new Server(server, {
-  cors: { origin: '*', methods: ['GET', 'POST'] },
+  cors: { origin: "*", methods: ["GET", "POST"] },
 });
-app.set('io', io);
+app.set("io", io);
 
 // Socket.IO Auth Middleware
 io.use((socket, next) => {
   const token = socket.handshake.auth?.token;
-  if (!token) return next(new Error('Authentication error: token missing'));
+  if (!token) return next(new Error("Authentication error: token missing"));
   try {
     const payload = jwt.verify(token, process.env.JWT_SECRET);
     socket.data.userId = payload.id || payload._id;
     return next();
   } catch (err) {
-    return next(new Error('Authentication error: invalid token'));
+    return next(new Error("Authentication error: invalid token"));
   }
 });
 
 // Emit single user updates
 function emitUserOnline(userId) {
-  io.emit('user-online', { userId });
+  io.emit("user-online", { userId });
 }
 function emitUserOffline(userId, lastSeen) {
-  io.emit('user-offline', { userId, lastSeen });
+  io.emit("user-offline", { userId, lastSeen });
 }
 
 // Debounced broadcast (optional full update)
@@ -88,7 +151,7 @@ let debounceTimer;
 function scheduleBroadcastOnlineStatus() {
   clearTimeout(debounceTimer);
   debounceTimer = setTimeout(() => {
-    io.emit('update-online-users', {
+    io.emit("update-online-users", {
       online: Array.from(onlineUsers.keys()),
       lastSeen: Object.fromEntries(lastSeenMap),
     });
@@ -96,62 +159,67 @@ function scheduleBroadcastOnlineStatus() {
 }
 
 // Socket.IO Events
-io.on('connection', (socket) => {
+io.on("connection", (socket) => {
   const userId = String(socket.data.userId);
   console.log(`🔌 Socket connected: ${socket.id} for user ${userId}`);
-
+    // Join user-specific room
+  socket.join(`user_${userId}`);
   // Handle multi-tab login
   if (!onlineUsers.has(userId)) onlineUsers.set(userId, []);
   onlineUsers.get(userId).push(socket.id);
-
+  updateOnlineStatus(userId, true);
   // Emit user online
   emitUserOnline(userId);
 
   // Send offline messages
   const messages = offlineMessages.get(userId) || [];
   messages.forEach((msg) => {
-    io.to(socket.id).emit('receive-message', msg);
+    io.to(socket.id).emit("receive-message", msg);
   });
   offlineMessages.delete(userId);
 
   // Send offline notifications
   const notifs = offlineNotifications.get(userId) || [];
   notifs.forEach((notif) => {
-    io.to(socket.id).emit('new_notification', notif);
+    io.to(socket.id).emit("new_notification", notif);
   });
   offlineNotifications.delete(userId);
 
-  // Message event with validation
-  socket.on('send-message', ({ from, to, message }) => {
-    if (
-      typeof from !== 'string' ||
-      typeof to !== 'string' ||
-      typeof message !== 'string'
-    ) {
-      return socket.emit('error', 'Invalid message payload');
+  // Update the socket.io message handler
+  socket.on("send-message", async (msg) => {
+    try {
+      // Validate message
+      if (!msg.sender_id || !msg.receiver_id || !msg.content) {
+        return socket.emit("error", "Invalid message payload");
+      }
+
+      // Get recipient sockets
+      const recipientSocketIds = onlineUsers.get(String(msg.receiver_id)) || [];
+
+      // Send to recipient if online
+      if (recipientSocketIds.length > 0) {
+        recipientSocketIds.forEach((id) => {
+          io.to(id).emit("receive-message", msg);
+        });
+
+        // Update delivery status
+        await db.query(`UPDATE messages SET is_delivered = 1 WHERE id = ?`, [
+          msg.id,
+        ]);
+      }
+    } catch (error) {
+      console.error("Error handling message:", error);
+      socket.emit("error", "Message processing failed");
     }
-
-    const time = formatDateTime(new Date());
-    const msgObj = { from, to, message, sender: from, receiver: to, time };
-    const recipientSocketIds = onlineUsers.get(to) || [];
-
-    if (recipientSocketIds.length > 0) {
-      recipientSocketIds.forEach((id) => {
-        io.to(id).emit('receive-message', msgObj);
-      });
-    } else {
-      if (!offlineMessages.has(to)) offlineMessages.set(to, []);
-      offlineMessages.get(to).push(msgObj);
-    }
-
-    io.to(socket.id).emit('receive-message', msgObj);
   });
-
   // Manual logout from client
-  socket.on('userOffline', ({ userId }) => {
+  socket.on("userOffline", ({ userId }) => {
     if (!userId) return;
     const sockets = onlineUsers.get(userId) || [];
-    onlineUsers.set(userId, sockets.filter((id) => id !== socket.id));
+    onlineUsers.set(
+      userId,
+      sockets.filter((id) => id !== socket.id)
+    );
     if (onlineUsers.get(userId).length === 0) {
       onlineUsers.delete(userId);
       lastSeenMap.set(userId, formatDateTime(new Date()));
@@ -160,7 +228,7 @@ io.on('connection', (socket) => {
   });
 
   // Disconnect
-  socket.on('disconnect', () => {
+  socket.on("disconnect", () => {
     const sockets = onlineUsers.get(userId) || [];
     const filtered = sockets.filter((id) => id !== socket.id);
 
@@ -171,7 +239,7 @@ io.on('connection', (socket) => {
       lastSeenMap.set(userId, formatDateTime(new Date()));
       emitUserOffline(userId, lastSeenMap.get(userId));
     }
-
+    updateOnlineStatus(userId, false);
     console.log(`❌ Socket disconnected: ${socket.id} for user ${userId}`);
   });
 });
@@ -194,13 +262,13 @@ setInterval(() => {
 // Optional: Save lastSeenMap to file on shutdown
 function saveLastSeenToFile() {
   fs.writeFileSync(
-    './lastSeenBackup.json',
+    "./lastSeenBackup.json",
     JSON.stringify(Object.fromEntries(lastSeenMap), null, 2)
   );
 }
 
-process.on('SIGINT', () => {
-  console.log('\n🛑 Gracefully shutting down...');
+process.on("SIGINT", () => {
+  console.log("\n🛑 Gracefully shutting down...");
   saveLastSeenToFile();
   process.exit();
 });
@@ -213,9 +281,6 @@ server.listen(PORT, () => {
 
 // Export for tests or reuse
 module.exports = { app, server, io };
-
-
-
 
 // const express = require('express');
 // const cors = require('cors');
@@ -269,8 +334,6 @@ module.exports = { app, server, io };
 // const onlineUsers = new Map();         // userId -> socketId
 // const lastSeenMap = new Map();         // userId -> timestamp
 // const offlineMessages = new Map();     // userId -> [{ from, to, message, time }]
-
-
 
 // io.on('connection', (socket) => {
 //   console.log(`🔌 Socket connected: ${socket.id}`);

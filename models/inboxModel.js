@@ -635,8 +635,8 @@ const InboxModel = {
                       p.*,
                       CASE
                       WHEN n.id IS NOT NULL
-                          AND n.sender_user_id = ?
-                          AND n.receiver_user_id = u.id
+                          AND n.sender_user_id = u.id
+                          AND n.receiver_user_id = ?
                           AND n.status IN ('pending', 'accepted')
                       THEN true
                       ELSE false
@@ -644,7 +644,7 @@ const InboxModel = {
                       FROM users u
                       JOIN profiles p ON u.id = p.user_id
                       LEFT JOIN notifications n
-                      ON n.sender_user_id = ? AND n.receiver_user_id = u.id
+                      ON n.sender_user_id = u.id AND n.receiver_user_id = ?
                       WHERE u.looking_for = ?
                   `;
          const queryParams = [loggedInUserId, loggedInUserId, lookingFor];

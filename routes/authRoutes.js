@@ -13,9 +13,9 @@ router.post('/login', authController.login);
 
 // OTP Routes
 router.post('/send-email-otp', otpController.sendEmailOTP);
-router.post('/verify-email-otp', otpValidator.validateVerifyEmailOTP, otpController.verifyEmailOTP);
-router.post('/send-phone-otp', otpValidator.validateSendPhoneOTP, otpController.sendPhoneOTP);
-router.post('/verify-phone-otp', otpValidator.validateVerifyPhoneOTP, otpController.verifyPhoneOTP);
+router.post('/verify-email-otp', otpController.verifyEmailOTP);
+router.post('/send-phone-otp', otpController.sendPhoneOTP);
+router.post('/verify-phone-otp', otpController.verifyPhoneOTP);
 router.post('/generate-password', async (req, res) => {
   try {
     const { email } = req.body;
