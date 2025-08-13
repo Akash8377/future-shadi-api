@@ -20,11 +20,11 @@ exports.uploadGalleryImages = async (req, res) => {
  
     if (!success) {
       for (const file of req.files) {
-        await unlinkAsync(path.join(__dirname, '../public/uploads/profiles', file.filename));
+        await unlinkAsync(path.join(__dirname, '../public/uploads/gallery', file.filename));
       }
       return res.status(500).json({
         success: false,
-        message: 'Failed to update profile gallery images',
+        message: 'Failed to update gallery images',
       });
     }
  
@@ -39,7 +39,7 @@ exports.uploadGalleryImages = async (req, res) => {
     if (req.files) {
       for (const file of req.files) {
         try {
-          await unlinkAsync(path.join(__dirname, '../public/uploads/profiles', file.filename));
+          await unlinkAsync(path.join(__dirname, '../public/uploads/gallery', file.filename));
         } catch (err) {
           console.error('Error cleaning up files:', err);
         }
@@ -79,7 +79,7 @@ exports.deleteGalleryImage = async (req, res) => {
     const { success, deletedFilename } = await Gallery.deleteGalleryImage(userId, imageId);
  
     if (success && deletedFilename) {
-      const imagePath = path.join(__dirname, '../public/uploads/profiles', deletedFilename);
+      const imagePath = path.join(__dirname, '../public/uploads/gallery', deletedFilename);
       try {
         await unlinkAsync(imagePath);
       } catch (err) {

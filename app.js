@@ -6,7 +6,7 @@ const morgan = require("morgan");
 const http = require("http");
 const { Server } = require("socket.io");
 const jwt = require("jsonwebtoken");
-const fs = require("fs");
+const { v4: uuidv4 } = require("uuid");
 const { formatDateTime } = require("./utils/datetimeUtils");
 const {
   onlineUsers,
@@ -15,8 +15,9 @@ const {
   offlineNotifications,
   updateOnlineStatus,
 } = require("./utils/onlineTracker");
-
-// Routes
+const User = require("./models/userModel");
+const db = require("./config/db");
+// Routes Imports
 const authRoutes = require("./routes/authRoutes");
 const profileRoutes = require("./routes/profileRoutes");
 const notificationRoutes = require("./routes/notificationRoutes");
@@ -24,9 +25,10 @@ const inboxRoutes = require("./routes/inboxRoutes");
 const matchesRoutes = require("./routes/matchesRoutes");
 const galleryRoutes = require("./routes/galleryRoutes");
 const searchRoutes = require("./routes/searchRoutes");
+
 const app = express();
 const server = http.createServer(app);
-const db = require("./config/db");
+
 // Middlewares
 app.use(cors());
 app.use(helmet());
@@ -55,7 +57,7 @@ app.get("/api/online-status", (req, res) => {
   });
 });
 
-// Message History Endpoint
+// Get message history with JSON storage
 app.get("/api/messages/history", async (req, res) => {
   try {
     const { user1, user2 } = req.query;
@@ -63,16 +65,20 @@ app.get("/api/messages/history", async (req, res) => {
       return res.status(400).json({ error: "Missing user IDs" });
     }
 
-    const [messages] = await db.query(
-      `
-      SELECT * FROM messages 
-      WHERE (sender_id = ? AND receiver_id = ?)
-      OR (sender_id = ? AND receiver_id = ?)
-      ORDER BY sent_at ASC
-    `,
-      [user1, user2, user2, user1]
+    // Create conversation ID (sorted to ensure consistency)
+    const id1 = parseInt(user1);
+    const id2 = parseInt(user2);
+    const minId = Math.min(id1, id2);
+    const maxId = Math.max(id1, id2);
+    const conversationId = `${minId}-${maxId}`;
+
+    const [result] = await db.query(
+      `SELECT messages FROM conversations WHERE conversation_id = ?`,
+      [conversationId]
     );
 
+    // Return messages as JSON
+    const messages = result.length > 0 ? JSON.parse(result[0].messages) : [];
     res.json({ messages });
   } catch (error) {
     console.error("Error fetching messages:", error);
@@ -80,6 +86,7 @@ app.get("/api/messages/history", async (req, res) => {
   }
 });
 
+// Send message with JSON storage
 app.post("/api/messages/send", async (req, res) => {
   try {
     const { sender_id, receiver_id, content } = req.body;
@@ -88,33 +95,110 @@ app.post("/api/messages/send", async (req, res) => {
       return res.status(400).json({ error: "Missing required fields" });
     }
 
-    // Insert message into database
-    const [result] = await db.query(
-      `INSERT INTO messages (sender_id, receiver_id, content) 
-       VALUES (?, ?, ?)`,
-      [sender_id, receiver_id, content]
+    // Create conversation ID (sorted to ensure consistency)
+    const id1 = parseInt(sender_id);
+    const id2 = parseInt(receiver_id);
+    const minId = Math.min(id1, id2);
+    const maxId = Math.max(id1, id2);
+    const conversationId = `${minId}-${maxId}`;
+
+    // Create new message object
+    const newMessage = {
+      id: uuidv4(),
+      sender_id: id1,
+      receiver_id: id2,
+      content: content.trim(),
+      sent_at: new Date().toISOString()
+    };
+
+    // Check if conversation exists
+    const [existing] = await db.query(
+      `SELECT messages FROM conversations WHERE conversation_id = ?`,
+      [conversationId]
     );
 
-    // Get the complete message record
-    const [messages] = await db.query(
-      `SELECT * FROM messages WHERE id = ?`,
-      [result.insertId]
-    );
-    
-    const newMessage = messages[0];
-    
+    if (existing.length > 0) {
+      // Update existing conversation
+      const messages = JSON.parse(existing[0].messages);
+      messages.push(newMessage);
+      
+      await db.query(
+        `UPDATE conversations SET messages = ? WHERE conversation_id = ?`,
+        [JSON.stringify(messages), conversationId]
+      );
+    } else {
+      // Create new conversation
+      await db.query(
+        `INSERT INTO conversations (conversation_id, user1_id, user2_id, messages) 
+         VALUES (?, ?, ?, ?)`,
+        [conversationId, minId, maxId, JSON.stringify([newMessage])]
+      );
+    }
+
     // Broadcast the message in real-time
     const io = req.app.get('io');
     
-    // Send to receiver
-    io.to(`user_${receiver_id}`).emit('receive-message', newMessage);
+    // Convert IDs to strings for socket rooms
+    const receiverRoom = `user_${String(receiver_id)}`;
+    const senderRoom = `user_${String(sender_id)}`;
     
-    // Also send to sender (for multi-device sync)
-    io.to(`user_${sender_id}`).emit('receive-message', newMessage);
+    io.to(receiverRoom).emit('receive-message', newMessage);
+    io.to(senderRoom).emit('receive-message', newMessage);
 
     res.json({ message: newMessage });
   } catch (error) {
     console.error("Error sending message:", error);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// Add this at the top of app.js
+const getLastMessage = (messages) => {
+  const parsed = JSON.parse(messages);
+  return parsed.length > 0 ? parsed[parsed.length - 1] : null;
+};
+
+// Modify the existing /api/inbox/chat-users endpoint
+app.get("/api/inbox/chat-users", async (req, res) => {
+  try {
+    const { user_id, looking_for } = req.query;
+    const [users] = await db.query(`
+      SELECT 
+        u.id, u.first_name, u.last_name, u.profile_image, 
+        u.online, u.birth_year, u.birth_month, u.birth_day,
+        u.height, u.religion, u.community, u.mother_tongue,
+        u.profession, u.city, u.country,
+        c.messages,
+        CASE 
+          WHEN cr.sender_id = ? AND cr.status = 'pending' THEN true
+          ELSE false
+        END AS connectionRequest,
+        MAX(cr.created_at) AS date
+      FROM users u
+      LEFT JOIN connection_requests cr 
+        ON (cr.receiver_id = u.id OR cr.sender_id = u.id)
+      LEFT JOIN conversations c 
+        ON (c.user1_id = u.id OR c.user2_id = u.id) 
+        AND (c.user1_id = ? OR c.user2_id = ?)
+      WHERE u.looking_for = ?
+      GROUP BY u.id
+    `, [user_id, user_id, user_id, looking_for]);
+
+    const enhancedUsers = users.map(user => {
+      const lastMessage = user.messages ? getLastMessage(user.messages) : null;
+      return {
+        ...user,
+        lastMessage: lastMessage ? {
+          content: lastMessage.content,
+          sent_at: lastMessage.sent_at,
+          is_sender: lastMessage.sender_id === parseInt(user_id)
+        } : null
+      };
+    });
+
+    res.json({ users: enhancedUsers });
+  } catch (error) {
+    console.error("Error fetching chat users:", error);
     res.status(500).json({ error: "Internal server error" });
   }
 });
@@ -131,61 +215,37 @@ io.use((socket, next) => {
   if (!token) return next(new Error("Authentication error: token missing"));
   try {
     const payload = jwt.verify(token, process.env.JWT_SECRET);
-    socket.data.userId = payload.id || payload._id;
+    socket.data.userId = String(payload.id || payload._id); // Ensure ID is string
     return next();
   } catch (err) {
     return next(new Error("Authentication error: invalid token"));
   }
 });
 
-// Emit single user updates
-function emitUserOnline(userId) {
-  io.emit("user-online", { userId });
-}
-function emitUserOffline(userId, lastSeen) {
-  io.emit("user-offline", { userId, lastSeen });
-}
-
-// Debounced broadcast (optional full update)
-let debounceTimer;
-function scheduleBroadcastOnlineStatus() {
-  clearTimeout(debounceTimer);
-  debounceTimer = setTimeout(() => {
-    io.emit("update-online-users", {
-      online: Array.from(onlineUsers.keys()),
-      lastSeen: Object.fromEntries(lastSeenMap),
-    });
-  }, 500);
-}
-
-// Socket.IO Events
 io.on("connection", (socket) => {
-  const userId = String(socket.data.userId);
+  const userId = socket.data.userId;
   console.log(`🔌 Socket connected: ${socket.id} for user ${userId}`);
-    // Join user-specific room
+  
+  // Join user's personal room
   socket.join(`user_${userId}`);
-  // Handle multi-tab login
+
+    // Update online status
   if (!onlineUsers.has(userId)) onlineUsers.set(userId, []);
   onlineUsers.get(userId).push(socket.id);
   updateOnlineStatus(userId, true);
-  // Emit user online
-  emitUserOnline(userId);
-
-  // Send offline messages
-  const messages = offlineMessages.get(userId) || [];
-  messages.forEach((msg) => {
-    io.to(socket.id).emit("receive-message", msg);
+  
+  // Handle joining conversation rooms
+  socket.on('join-conversation', ({ conversationId }) => {
+    socket.join(`conv_${conversationId}`);
+    console.log(`User ${userId} joined conversation ${conversationId}`);
   });
-  offlineMessages.delete(userId);
-
-  // Send offline notifications
-  const notifs = offlineNotifications.get(userId) || [];
-  notifs.forEach((notif) => {
-    io.to(socket.id).emit("new_notification", notif);
+  
+  socket.on('leave-conversation', ({ conversationId }) => {
+    socket.leave(`conv_${conversationId}`);
+    console.log(`User ${userId} left conversation ${conversationId}`);
   });
-  offlineNotifications.delete(userId);
 
-  // Update the socket.io message handler
+  // Handle message sending
   socket.on("send-message", async (msg) => {
     try {
       // Validate message
@@ -193,41 +253,57 @@ io.on("connection", (socket) => {
         return socket.emit("error", "Invalid message payload");
       }
 
-      // Get recipient sockets
-      const recipientSocketIds = onlineUsers.get(String(msg.receiver_id)) || [];
+      // Generate conversation ID
+      const id1 = parseInt(msg.sender_id);
+      const id2 = parseInt(msg.receiver_id);
+      const conversationId = `${Math.min(id1, id2)}-${Math.max(id1, id2)}`;
+      
+      // Create message object
+      const newMessage = {
+        id: uuidv4(),
+        sender_id: id1,
+        receiver_id: id2,
+        content: msg.content,
+        sent_at: new Date().toISOString(),
+        is_delivered: false
+      };
 
-      // Send to recipient if online
-      if (recipientSocketIds.length > 0) {
-        recipientSocketIds.forEach((id) => {
-          io.to(id).emit("receive-message", msg);
-        });
+      // Save to database (JSON format)
+      const [existing] = await db.query(
+        `SELECT messages FROM conversations WHERE conversation_id = ?`,
+        [conversationId]
+      );
 
-        // Update delivery status
-        await db.query(`UPDATE messages SET is_delivered = 1 WHERE id = ?`, [
-          msg.id,
-        ]);
+      if (existing.length > 0) {
+        const messages = JSON.parse(existing[0].messages);
+        messages.push(newMessage);
+        
+        await db.query(
+          `UPDATE conversations SET messages = ? WHERE conversation_id = ?`,
+          [JSON.stringify(messages), conversationId]
+        );
+      } else {
+        await db.query(
+          `INSERT INTO conversations (conversation_id, user1_id, user2_id, messages) 
+           VALUES (?, ?, ?, ?)`,
+          [conversationId, Math.min(id1, id2), Math.max(id1, id2), JSON.stringify([newMessage])]
+        );
       }
+
+      // Broadcast to conversation room
+      io.to(`conv_${conversationId}`).emit('receive-message', newMessage);
+      
+      // Also send to individual user rooms for multi-device sync
+      io.to(`user_${msg.sender_id}`).emit('receive-message', newMessage);
+      io.to(`user_${msg.receiver_id}`).emit('receive-message', newMessage);
+
     } catch (error) {
       console.error("Error handling message:", error);
       socket.emit("error", "Message processing failed");
     }
   });
-  // Manual logout from client
-  socket.on("userOffline", ({ userId }) => {
-    if (!userId) return;
-    const sockets = onlineUsers.get(userId) || [];
-    onlineUsers.set(
-      userId,
-      sockets.filter((id) => id !== socket.id)
-    );
-    if (onlineUsers.get(userId).length === 0) {
-      onlineUsers.delete(userId);
-      lastSeenMap.set(userId, formatDateTime(new Date()));
-      emitUserOffline(userId, lastSeenMap.get(userId));
-    }
-  });
 
-  // Disconnect
+  // Disconnect handler
   socket.on("disconnect", () => {
     const sockets = onlineUsers.get(userId) || [];
     const filtered = sockets.filter((id) => id !== socket.id);
@@ -237,167 +313,37 @@ io.on("connection", (socket) => {
     } else {
       onlineUsers.delete(userId);
       lastSeenMap.set(userId, formatDateTime(new Date()));
-      emitUserOffline(userId, lastSeenMap.get(userId));
     }
-    updateOnlineStatus(userId, false);
+    
     console.log(`❌ Socket disconnected: ${socket.id} for user ${userId}`);
   });
 });
 
-// Optional: Periodic cleanup of offline queues
-setInterval(() => {
-  offlineMessages.forEach((msgs, userId) => {
-    if (msgs.length > 50) {
-      offlineMessages.set(userId, msgs.slice(-50));
-    }
-  });
-
-  offlineNotifications.forEach((notifs, userId) => {
-    if (notifs.length > 50) {
-      offlineNotifications.set(userId, notifs.slice(-50));
-    }
-  });
-}, 5 * 60 * 1000); // every 5 minutes
-
-// Optional: Save lastSeenMap to file on shutdown
-function saveLastSeenToFile() {
-  fs.writeFileSync(
-    "./lastSeenBackup.json",
-    JSON.stringify(Object.fromEntries(lastSeenMap), null, 2)
-  );
-}
-
-process.on("SIGINT", () => {
-  console.log("\n🛑 Gracefully shutting down...");
-  saveLastSeenToFile();
-  process.exit();
-});
+const createConversationsTable = async () => {
+  try {
+    await db.query(`
+      CREATE TABLE IF NOT EXISTS conversations (
+        conversation_id VARCHAR(255) PRIMARY KEY,
+        user1_id BIGINT NOT NULL,
+        user2_id BIGINT NOT NULL,
+        messages JSON NOT NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        INDEX (user1_id),
+        INDEX (user2_id)
+      )
+    `);
+    console.log("✅ Conversations table ready");
+  } catch (error) {
+    console.error("Error creating conversations table:", error);
+  }
+};
 
 // Start server
 const PORT = process.env.PORT || 5000;
-server.listen(PORT, () => {
+server.listen(PORT, async () => {
+  await createConversationsTable();
   console.log(`🚀 Server running on port ${PORT}`);
 });
 
-// Export for tests or reuse
 module.exports = { app, server, io };
-
-// const express = require('express');
-// const cors = require('cors');
-// const helmet = require('helmet');
-// const morgan = require('morgan');
-// const dotenv = require('dotenv');
-// const http = require('http');
-// const { Server } = require('socket.io');
-// const { formatDateTime } = require('./utils/datetimeUtils');
-
-// const authRoutes = require('./routes/authRoutes');
-// const profileRoutes = require('./routes/profileRoutes');
-// const searchRoutes = require('./routes/searchRoutes');
-// const inboxRoutes = require('./routes/inboxRoutes');
-// const galleryRoutes = require('./routes/galleryRoutes');
-// const notificationRoutes = require('./routes/notificationRoutes');
-// const errorMiddleware = require('./middlewares/errorMiddleware');
-
-// dotenv.config();
-
-// const app = express();
-// const server = http.createServer(app);
-
-// // Middlewares
-// app.use(cors());
-// app.use(helmet());
-// app.use(morgan('dev'));
-// app.use(express.json());
-// app.use(express.urlencoded({ extended: true }));
-// app.use('/uploads', (req, res, next) => {
-//   res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
-//   next();
-// });
-// app.use(express.static('public'));
-
-// app.use('/api/auth', authRoutes);
-// app.use('/api/profile', profileRoutes, galleryRoutes);
-// app.use('/api/search', searchRoutes);
-// app.use('/api/inbox', inboxRoutes);
-// app.use('/api/notifications', notificationRoutes);
-
-// // Socket.IO
-// const io = new Server(server, {
-//   cors: {
-//     origin: '*',
-//     methods: ['GET', 'POST'],
-//   },
-// });
-
-// // In-memory storage
-// const onlineUsers = new Map();         // userId -> socketId
-// const lastSeenMap = new Map();         // userId -> timestamp
-// const offlineMessages = new Map();     // userId -> [{ from, to, message, time }]
-
-// io.on('connection', (socket) => {
-//   console.log(`🔌 Socket connected: ${socket.id}`);
-
-//   socket.on('user-online', (userId) => {
-//     onlineUsers.set(userId, socket.id);
-
-//     // Send any offline messages
-//     const messages = offlineMessages.get(userId) || [];
-//     messages.forEach((msg) => {
-//       io.to(socket.id).emit('receive-message', msg);
-//     });
-//     offlineMessages.delete(userId);
-
-//     // Notify all users about online status
-//     io.emit('update-online-users', {
-//       online: Array.from(onlineUsers.keys()),
-//       lastSeen: Object.fromEntries(lastSeenMap),
-//     });
-//   });
-
-//   socket.on('send-message', ({ from, to, message }) => {
-//     const time = formatDateTime(new Date());
-//     const msgObj = { from, to, message, sender: from, receiver: to, time };
-
-//     const recipientSocketId = onlineUsers.get(to);
-//     const senderSocketId = socket.id;
-
-//     if (recipientSocketId) {
-//       // Recipient is online
-//       io.to(recipientSocketId).emit('receive-message', msgObj);
-//     } else {
-//       // Recipient offline – store message temporarily
-//       if (!offlineMessages.has(to)) offlineMessages.set(to, []);
-//       offlineMessages.get(to).push(msgObj);
-//     }
-
-//     // Emit message back to sender
-//     io.to(senderSocketId).emit('receive-message', msgObj);
-//   });
-
-//   socket.on('disconnect', () => {
-//     for (const [userId, id] of onlineUsers.entries()) {
-//       if (id === socket.id) {
-//         onlineUsers.delete(userId);
-//         lastSeenMap.set(userId, formatDateTime(new Date()));
-//         break;
-//       }
-//     }
-
-//     io.emit('update-online-users', {
-//       online: Array.from(onlineUsers.keys()),
-//       lastSeen: Object.fromEntries(lastSeenMap),
-//     });
-
-//     console.log(`❌ Socket disconnected: ${socket.id}`);
-//   });
-// });
-
-// // Error middleware
-// app.use(errorMiddleware);
-
-// // Start server
-// const PORT = process.env.PORT || 5000;
-// server.listen(PORT, () => {
-//   console.log(`🚀 Server running on port ${PORT}`);
-// });

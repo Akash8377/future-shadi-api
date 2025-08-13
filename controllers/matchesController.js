@@ -11,12 +11,12 @@ const {generateAndSendEmailOTP, verifyEmailOTP} = require('../services/otpServic
 
 exports.myMatches  = async (req, res) => {
   try {
-    const {  user_id, looking_for, partner_preference, ...filters } = req.query;
+    const { user_id,looking_for, partner_preference, ...filters } = req.query;
  
     if (!looking_for || !['Bride', 'Groom'].includes(looking_for)) {
       return res.status(400).json({ message: "Invalid 'looking_for' value" });
     }
-    
+ 
     const processedFilters = {};
  
     for (let [key, value] of Object.entries(filters)) {
@@ -39,10 +39,10 @@ exports.myMatches  = async (req, res) => {
  
     console.log(parsedPreference, "parsedPreference");
     const users = await Matches.getMyMatches(
+      user_id,
       looking_for,
       processedFilters,
-      parsedPreference,
-      user_id
+      parsedPreference
     );
  
     return res.status(200).json({ success: true, users });
@@ -76,8 +76,7 @@ exports.newMatches = async (req, res) => {
       processedFilters[key] = value;
     }
  
-   const users = await Matches.getNewMatchesByLookingFor(looking_for, processedFilters, user_id);
-
+    const users = await Matches.getNewMatchesByLookingFor(user_id, looking_for, processedFilters);
     return res.status(200).json({ success: true, users });
   } catch (error) {
     console.error("Error fetching new matches by looking_for:", error);
@@ -109,14 +108,13 @@ exports.newMatchesNearMe = async (req, res) => {
     }
 
 
-    const users = await Matches.getNewMatchesByNearMe(looking_for, nearMe, processedFilters, user_id);
+    const users = await Matches.getNewMatchesByNearMe(user_id,looking_for, nearMe, processedFilters);
     return res.status(200).json({ success: true, users });
   } catch (error) {
     console.error("Error fetching new matches by looking_for:", error);
     return res.status(500).json({ success: false, message: "Server Error" });
   }
 };
- 
 exports.getShortlisted = async (req, res) => {
   try {
     const { user_id, looking_for, ...filters } = req.query;

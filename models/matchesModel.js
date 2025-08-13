@@ -3,41 +3,48 @@ const bcrypt = require("bcryptjs");
 const { onlineUsers, lastSeenMap } = require('./../utils/onlineTracker');
 
 class Matches {
-
-static async getMyMatches(lookingFor, filters = {}, partnerPrefs = null, loggedInUserId = null) {
+    static async getMyMatches(user_id, lookingFor, filters = {}, partnerPrefs = null) {
     try {
         if (!partnerPrefs || Object.keys(partnerPrefs).length === 0) {
         return [];
         }
     
         let baseQuery = `
-        SELECT
-            u.id AS user_id,
-            u.first_name,
-            u.last_name,
-            u.email,
-            u.looking_for,
-            u.dob,
-            u.religion,
-            u.education,
-            u.country,
-            p.*,
-            CASE 
-            WHEN n.id IS NOT NULL 
+        SELECT u.id AS user_id,
+       u.profileId,
+       u.first_name,
+       u.last_name,
+       u.email,
+       u.looking_for,
+       u.dob,
+       u.religion,
+       u.education,
+       u.country,
+       u.online_status,
+       p.*,
+       CASE 
+           WHEN n.id IS NOT NULL 
                 AND n.sender_user_id = ? 
                 AND n.receiver_user_id = u.id 
                 AND n.status IN ('pending', 'accepted') 
-            THEN true 
-            ELSE false 
-                END AS connectionRequest
-            FROM users u
-            JOIN profiles p ON u.id = p.user_id
-            LEFT JOIN notifications n 
-                ON n.sender_user_id = ? AND n.receiver_user_id = u.id
-            WHERE u.looking_for = ?
+           THEN true 
+           WHEN n2.id IS NOT NULL
+                AND n2.receiver_user_id = ?
+                AND n2.sender_user_id = u.id
+                AND n2.status IN ('pending', 'accepted')
+           THEN true
+           ELSE false 
+        END AS connectionRequest
+        FROM users u
+        JOIN profiles p ON u.id = p.user_id
+        LEFT JOIN notifications n 
+            ON n.sender_user_id = ? AND n.receiver_user_id = u.id
+        LEFT JOIN notifications n2
+            ON n2.receiver_user_id = ? AND n2.sender_user_id = u.id
+        WHERE u.looking_for = ?
         `;
     
-        const queryParams = [loggedInUserId, loggedInUserId, lookingFor];
+        const queryParams = [user_id, user_id, user_id, user_id, lookingFor];
         const conditions = [];
     
         // UI Filters (AND)
@@ -228,190 +235,51 @@ static async getMyMatches(lookingFor, filters = {}, partnerPrefs = null, loggedI
         }
     
         const [rows] = await pool.query(baseQuery, queryParams);
-        // return rows;
-        const enrichedRows = rows.map((row) => {
-        const userId = String(row.user_id); // Make sure it's string
-        return {
-            ...row,
-            online: onlineUsers.has(userId),
-            last_seen: lastSeenMap.get(userId) || null,
-             connectionRequest: !!row.connectionRequest,
-        };
-        });
-
-        return enrichedRows;
+        return rows;
     } catch (error) {
         console.error('Error fetching new matches:', error);
         throw error;
     }
     }
 
-static async getNewMatchesByLookingFor(lookingFor, filters = {}, loggedInUserId = null) {
-    try {
-      let baseQuery = `
-                SELECT
-                    u.id AS user_id,
-                    u.first_name,
-                    u.last_name,
-                    u.email,
-                    u.looking_for,
-                    u.dob,
-                    u.religion,
-                    u.phone,
-                    u.education,
-                    u.country,
-                    p.*,
-                    CASE 
-                    WHEN n.id IS NOT NULL 
-                        AND n.sender_user_id = ? 
-                        AND n.receiver_user_id = u.id 
-                        AND n.status IN ('pending', 'accepted') 
-                    THEN true 
-                    ELSE false 
-                    END AS connectionRequest
-                    FROM users u
-                    JOIN profiles p ON u.id = p.user_id
-                    LEFT JOIN notifications n 
-                    ON n.sender_user_id = ? AND n.receiver_user_id = u.id
-                    WHERE u.looking_for = ?
-                `;
-       const queryParams = [loggedInUserId, loggedInUserId, lookingFor];
-
-        const conditions = [];
-    
-        // Process each filter
-        for (const [key, values] of Object.entries(filters)) {
-        if (!values || values.length === 0) continue;
-    
-        switch(key) {
-            case 'verificationStatus':
-            if (values.includes('verified')) {
-                conditions.push(`p.verified = 1`);
-            }
-            break;
-            
-            case 'photoSettings':
-            if (values.includes('public')) {
-                conditions.push(`p.photo_privacy = 'public'`);
-            }
-            if (values.includes('protected')) {
-                conditions.push(`p.photo_privacy = 'protected'`);
-            }
-            break;
-            
-            case 'recentlyJoined':
-            // Only one value for radio buttons
-            const days = parseInt(values[0]);
-            if (!isNaN(days)) {
-                conditions.push(`p.created_at >= DATE_SUB(NOW(), INTERVAL ? DAY)`);
-                queryParams.push(days);
-            }
-            break;
-            
-            case 'maritalStatus':
-            conditions.push(`p.marital_status IN (?)`);
-            queryParams.push(values);
-            break;
-            
-            case 'religion':
-            conditions.push(`u.religion IN (?)`);
-            queryParams.push(values);
-            break;
-            
-            case 'diet':
-            conditions.push(`p.diet IN (?)`);
-            queryParams.push(values);
-            break;
-            
-            case 'country':
-            conditions.push(`p.living_in IN (?)`);
-            queryParams.push(values);
-            break;
-            
-            case 'income':
-            const incomeConditions = [];
-    
-            for (const range of values) {
-                switch (range) {
-                case '0-1':
-                    incomeConditions.push(`CAST(SUBSTRING_INDEX(p.income, ' ', 1) AS UNSIGNED) BETWEEN 0 AND 1`);
-                    break;
-                case '1-5':
-                    incomeConditions.push(`CAST(SUBSTRING_INDEX(p.income, ' ', 1) AS UNSIGNED) BETWEEN 1 AND 5`);
-                    break;
-                case '5-10':
-                    incomeConditions.push(`CAST(SUBSTRING_INDEX(p.income, ' ', 1) AS UNSIGNED) BETWEEN 5 AND 10`);
-                    break;
-                case '10-20':
-                    incomeConditions.push(`CAST(SUBSTRING_INDEX(p.income, ' ', 1) AS UNSIGNED) BETWEEN 10 AND 20`);
-                    break;
-                case '20+':
-                    incomeConditions.push(`CAST(SUBSTRING_INDEX(p.income, ' ', 1) AS UNSIGNED) > 20`);
-                    break;
-                }
-            }
-    
-            if (incomeConditions.length > 0) {
-                conditions.push(`(${incomeConditions.join(' OR ')})`);
-            }
-            break;
-    
-        }
-        }
-    
-        if (conditions.length > 0) {
-        baseQuery += ' AND ' + conditions.join(' AND ');
-        }
-    
-         const [rows] = await pool.query(baseQuery, queryParams);
-        // return rows;
-
-            const enrichedRows = rows.map((row) => {
-            const userId = String(row.user_id); // Make sure it's string
-            return {
-                ...row,
-                online: onlineUsers.has(userId),
-                last_seen: lastSeenMap.get(userId) || null,
-                connectionRequest: !!row.connectionRequest,
-            };
-            });
-
-        return enrichedRows;
-    } catch (error) {
-        console.error('Error fetching new matches:', error);
-        throw error;
-    }
-    }
-static async getNewMatchesByNearMe(lookingFor, nearMe, filters = {}, loggedInUserId = null) {
+    static async getNewMatchesByLookingFor(user_id, lookingFor,nearMe, filters = {}) {
     try {
         let baseQuery = `
-        SELECT
-            u.id AS user_id,
-            u.first_name,
-            u.last_name,
-            u.email,
-            u.looking_for,
-            u.dob,
-            u.religion,
-            u.education,
-            u.country,
-            p.*,
-            CASE 
-            WHEN n.id IS NOT NULL 
+        SELECT u.id AS user_id,
+       u.profileId,
+       u.first_name,
+       u.last_name,
+       u.email,
+       u.looking_for,
+       u.dob,
+       u.religion,
+       u.education,
+       u.country,
+       u.online_status,
+       p.*,
+       CASE 
+           WHEN n.id IS NOT NULL 
                 AND n.sender_user_id = ? 
                 AND n.receiver_user_id = u.id 
                 AND n.status IN ('pending', 'accepted') 
-            THEN true 
-            ELSE false 
-            END AS connectionRequest
-            FROM users u
-            JOIN profiles p ON u.id = p.user_id
-            LEFT JOIN notifications n 
+           THEN true 
+           WHEN n2.id IS NOT NULL
+                AND n2.receiver_user_id = ?
+                AND n2.sender_user_id = u.id
+                AND n2.status IN ('pending', 'accepted')
+           THEN true
+           ELSE false 
+        END AS connectionRequest
+        FROM users u
+        JOIN profiles p ON u.id = p.user_id
+        LEFT JOIN notifications n 
             ON n.sender_user_id = ? AND n.receiver_user_id = u.id
-            WHERE u.looking_for = ? AND p.city = ?
+        LEFT JOIN notifications n2
+            ON n2.receiver_user_id = ? AND n2.sender_user_id = u.id
+        WHERE u.looking_for = ?
         `;
 
-        const queryParams = [loggedInUserId, loggedInUserId, lookingFor, nearMe];
+        const queryParams = [user_id, user_id,user_id, user_id, lookingFor, nearMe];
         const conditions = [];
     
         // Process each filter
@@ -499,189 +367,275 @@ static async getNewMatchesByNearMe(lookingFor, nearMe, filters = {}, loggedInUse
         }
     
         const [rows] = await pool.query(baseQuery, queryParams);
-        // return rows;
-        const enrichedRows = rows.map((row) => {
-        const userId = String(row.user_id); // Make sure it's string
-        return {
-            ...row,
-            online: onlineUsers.has(userId),
-            last_seen: lastSeenMap.get(userId) || null,
-            connectionRequest: !!row.connectionRequest,
-        };
-        });
-
-        return enrichedRows;
-
+        return rows;
     } catch (error) {
         console.error('Error fetching new matches:', error);
         throw error;
     }
     }
 
+    static async getNewMatchesByNearMe(user_id, lookingFor, nearMe, filters = {}) {
+    try {
+        let baseQuery = `
+        SELECT u.id AS user_id,
+       u.profileId,
+       u.first_name,
+       u.last_name,
+       u.email,
+       u.looking_for,
+       u.dob,
+       u.religion,
+       u.education,
+       u.country,
+       u.online_status,
+       p.*,
+       CASE 
+           WHEN n.id IS NOT NULL 
+                AND n.sender_user_id = ? 
+                AND n.receiver_user_id = u.id 
+                AND n.status IN ('pending', 'accepted') 
+           THEN true 
+           WHEN n2.id IS NOT NULL
+                AND n2.receiver_user_id = ?
+                AND n2.sender_user_id = u.id
+                AND n2.status IN ('pending', 'accepted')
+           THEN true
+           ELSE false 
+        END AS connectionRequest
+        FROM users u
+        JOIN profiles p ON u.id = p.user_id
+        LEFT JOIN notifications n 
+            ON n.sender_user_id = ? AND n.receiver_user_id = u.id
+        LEFT JOIN notifications n2
+            ON n2.receiver_user_id = ? AND n2.sender_user_id = u.id
+        WHERE u.looking_for = ?
+        `;
+
+        const queryParams = [user_id, user_id,user_id, user_id,lookingFor, nearMe];
+        const conditions = [];
+    
+        // Process each filter
+        for (const [key, values] of Object.entries(filters)) {
+        if (!values || values.length === 0) continue;
+    
+        switch(key) {
+            case 'verificationStatus':
+            if (values.includes('verified')) {
+                conditions.push(`p.verified = 1`);
+            }
+            break;
+            
+            case 'photoSettings':
+            if (values.includes('public')) {
+                conditions.push(`p.photo_privacy = 'public'`);
+            }
+            if (values.includes('protected')) {
+                conditions.push(`p.photo_privacy = 'protected'`);
+            }
+            break;
+            
+            case 'recentlyJoined':
+            // Only one value for radio buttons
+            const days = parseInt(values[0]);
+            if (!isNaN(days)) {
+                conditions.push(`p.created_at >= DATE_SUB(NOW(), INTERVAL ? DAY)`);
+                queryParams.push(days);
+            }
+            break;
+            
+            case 'maritalStatus':
+            conditions.push(`p.marital_status IN (?)`);
+            queryParams.push(values);
+            break;
+            
+            case 'religion':
+            conditions.push(`u.religion IN (?)`);
+            queryParams.push(values);
+            break;
+            
+            case 'diet':
+            conditions.push(`p.diet IN (?)`);
+            queryParams.push(values);
+            break;
+            
+            case 'country':
+            conditions.push(`p.living_in IN (?)`);
+            queryParams.push(values);
+            break;
+            
+            case 'income':
+            const incomeConditions = [];
+    
+            for (const range of values) {
+                switch (range) {
+                case '0-1':
+                    incomeConditions.push(`CAST(SUBSTRING_INDEX(p.income, ' ', 1) AS UNSIGNED) BETWEEN 0 AND 1`);
+                    break;
+                case '1-5':
+                    incomeConditions.push(`CAST(SUBSTRING_INDEX(p.income, ' ', 1) AS UNSIGNED) BETWEEN 1 AND 5`);
+                    break;
+                case '5-10':
+                    incomeConditions.push(`CAST(SUBSTRING_INDEX(p.income, ' ', 1) AS UNSIGNED) BETWEEN 5 AND 10`);
+                    break;
+                case '10-20':
+                    incomeConditions.push(`CAST(SUBSTRING_INDEX(p.income, ' ', 1) AS UNSIGNED) BETWEEN 10 AND 20`);
+                    break;
+                case '20+':
+                    incomeConditions.push(`CAST(SUBSTRING_INDEX(p.income, ' ', 1) AS UNSIGNED) > 20`);
+                    break;
+                }
+            }
+    
+            if (incomeConditions.length > 0) {
+                conditions.push(`(${incomeConditions.join(' OR ')})`);
+            }
+            break;
+    
+        }
+        }
+    
+        if (conditions.length > 0) {
+        baseQuery += ' AND ' + conditions.join(' AND ');
+        }
+    
+        const [rows] = await pool.query(baseQuery, queryParams);
+        return rows;
+    } catch (error) {
+        console.error('Error fetching new matches:', error);
+        throw error;
+    }
+    }
 
     static async getShortlisted(lookingFor, filters = {}, userId) {
-  try {
-    // let baseQuery = `
-    //   SELECT
-    //     u.id AS user_id,
-    //     u.first_name,
-    //     u.last_name,
-    //     u.email,
-    //     u.looking_for,
-    //     u.dob,
-    //     u.religion,
-    //     u.education,
-    //     u.country,
-    //     p.*,
-    //     n.created_at AS notification_time,
-    //     n.status AS notification_status,
+        try {
+            let baseQuery = `
+            SELECT
+                u.id AS user_id,
+                u.profileId,
+                u.first_name,
+                u.last_name,
+                u.email,
+                u.looking_for,
+                u.dob,
+                u.religion,
+                u.education,
+                u.country,
+                u.online_status,
+                p.*,
+                n1.created_at AS your_request_time,
+                n2.created_at AS their_request_time,
+                n1.status AS your_request_status,
+                n2.status AS their_request_status,
+                
+                CASE 
+                WHEN n1.id IS NOT NULL OR n2.id IS NOT NULL THEN true
+                ELSE false
+                END AS connectionRequest
 
-    //     CASE 
-    //       WHEN EXISTS (
-    //         SELECT 1 FROM notifications 
-    //         WHERE sender_user_id = ? AND receiver_user_id = u.id
-    //       ) 
-    //       AND EXISTS (
-    //         SELECT 1 FROM notifications 
-    //         WHERE sender_user_id = u.id AND receiver_user_id = ?
-    //       )
-    //       THEN true
-    //       ELSE false
-    //     END AS connectionRequest
+            FROM users u
+            JOIN profiles p ON u.id = p.user_id
+            LEFT JOIN notifications n1 ON n1.sender_user_id = ? AND n1.receiver_user_id = u.id AND n1.status IN ('pending', 'accepted')
+            LEFT JOIN notifications n2 ON n2.sender_user_id = u.id AND n2.receiver_user_id = ? AND n2.status IN ('pending', 'accepted')
+            WHERE u.looking_for = ?
+                AND (n1.id IS NOT NULL OR n2.id IS NOT NULL)
+            `;
+            const queryParams = [userId, userId, lookingFor];
+            const conditions = [];
 
-    //   FROM users u
-    //   JOIN profiles p ON u.id = p.user_id
-    //   JOIN notifications n ON u.id = n.sender_user_id
-    //   WHERE u.looking_for = ?
-    //     AND n.status = 'accepted'
-    // `;
-let baseQuery = `
-  SELECT
-    u.id AS user_id,
-    u.first_name,
-    u.last_name,
-    u.email,
-    u.looking_for,
-    u.dob,
-    u.religion,
-    u.education,
-    u.country,
-    p.*,
-    n1.created_at AS your_request_time,
-    n2.created_at AS their_request_time,
-    n1.status AS your_request_status,
-    n2.status AS their_request_status,
-    
-    CASE 
-      WHEN n1.id IS NOT NULL OR n2.id IS NOT NULL THEN true
-      ELSE false
-    END AS connectionRequest
+            for (const [key, values] of Object.entries(filters)) {
+            if (!values || values.length === 0) continue;
 
-  FROM users u
-  JOIN profiles p ON u.id = p.user_id
-  LEFT JOIN notifications n1 ON n1.sender_user_id = ? AND n1.receiver_user_id = u.id AND n1.status = 'accepted'
-  LEFT JOIN notifications n2 ON n2.sender_user_id = u.id AND n2.receiver_user_id = ? AND n2.status = 'accepted'
-  WHERE u.looking_for = ?
-    AND (n1.id IS NOT NULL OR n2.id IS NOT NULL)
-`;
-    const queryParams = [userId, userId, lookingFor];
-    const conditions = [];
-
-    for (const [key, values] of Object.entries(filters)) {
-      if (!values || values.length === 0) continue;
-
-      switch (key) {
-        case "verificationStatus":
-          if (values.includes("verified")) conditions.push(`p.verified = 1`);
-          break;
-
-        case "photoSettings":
-          if (values.includes("public")) conditions.push(`p.photo_privacy = 'public'`);
-          if (values.includes("protected")) conditions.push(`p.photo_privacy = 'protected'`);
-          break;
-
-        case "recentlyJoined":
-          const days = parseInt(values[0]);
-          if (!isNaN(days)) {
-            conditions.push(`p.created_at >= DATE_SUB(NOW(), INTERVAL ? DAY)`);
-            queryParams.push(days);
-          }
-          break;
-
-        case "maritalStatus":
-          conditions.push(`p.marital_status IN (?)`);
-          queryParams.push(values);
-          break;
-
-        case "religion":
-          conditions.push(`u.religion IN (?)`);
-          queryParams.push(values);
-          break;
-
-        case "diet":
-          conditions.push(`p.diet IN (?)`);
-          queryParams.push(values);
-          break;
-
-        case "country":
-          conditions.push(`p.living_in IN (?)`);
-          queryParams.push(values);
-          break;
-
-        case "income":
-          const incomeConditions = [];
-
-          for (const range of values) {
-            switch (range) {
-              case "0-1":
-                incomeConditions.push(`CAST(SUBSTRING_INDEX(p.income, ' ', 1) AS UNSIGNED) BETWEEN 0 AND 1`);
+            switch (key) {
+                case "verificationStatus":
+                if (values.includes("verified")) conditions.push(`p.verified = 1`);
                 break;
-              case "1-5":
-                incomeConditions.push(`CAST(SUBSTRING_INDEX(p.income, ' ', 1) AS UNSIGNED) BETWEEN 1 AND 5`);
+
+                case "photoSettings":
+                if (values.includes("public")) conditions.push(`p.photo_privacy = 'public'`);
+                if (values.includes("protected")) conditions.push(`p.photo_privacy = 'protected'`);
                 break;
-              case "5-10":
-                incomeConditions.push(`CAST(SUBSTRING_INDEX(p.income, ' ', 1) AS UNSIGNED) BETWEEN 5 AND 10`);
+
+                case "recentlyJoined":
+                const days = parseInt(values[0]);
+                if (!isNaN(days)) {
+                    conditions.push(`p.created_at >= DATE_SUB(NOW(), INTERVAL ? DAY)`);
+                    queryParams.push(days);
+                }
                 break;
-              case "10-20":
-                incomeConditions.push(`CAST(SUBSTRING_INDEX(p.income, ' ', 1) AS UNSIGNED) BETWEEN 10 AND 20`);
+
+                case "maritalStatus":
+                conditions.push(`p.marital_status IN (?)`);
+                queryParams.push(values);
                 break;
-              case "20+":
-                incomeConditions.push(`CAST(SUBSTRING_INDEX(p.income, ' ', 1) AS UNSIGNED) > 20`);
+
+                case "religion":
+                conditions.push(`u.religion IN (?)`);
+                queryParams.push(values);
+                break;
+
+                case "diet":
+                conditions.push(`p.diet IN (?)`);
+                queryParams.push(values);
+                break;
+
+                case "country":
+                conditions.push(`p.living_in IN (?)`);
+                queryParams.push(values);
+                break;
+
+                case "income":
+                const incomeConditions = [];
+
+                for (const range of values) {
+                    switch (range) {
+                    case "0-1":
+                        incomeConditions.push(`CAST(SUBSTRING_INDEX(p.income, ' ', 1) AS UNSIGNED) BETWEEN 0 AND 1`);
+                        break;
+                    case "1-5":
+                        incomeConditions.push(`CAST(SUBSTRING_INDEX(p.income, ' ', 1) AS UNSIGNED) BETWEEN 1 AND 5`);
+                        break;
+                    case "5-10":
+                        incomeConditions.push(`CAST(SUBSTRING_INDEX(p.income, ' ', 1) AS UNSIGNED) BETWEEN 5 AND 10`);
+                        break;
+                    case "10-20":
+                        incomeConditions.push(`CAST(SUBSTRING_INDEX(p.income, ' ', 1) AS UNSIGNED) BETWEEN 10 AND 20`);
+                        break;
+                    case "20+":
+                        incomeConditions.push(`CAST(SUBSTRING_INDEX(p.income, ' ', 1) AS UNSIGNED) > 20`);
+                        break;
+                    }
+                }
+
+                if (incomeConditions.length > 0) {
+                    conditions.push(`(${incomeConditions.join(" OR ")})`);
+                }
                 break;
             }
-          }
+            }
 
-          if (incomeConditions.length > 0) {
-            conditions.push(`(${incomeConditions.join(" OR ")})`);
-          }
-          break;
-      }
+            if (conditions.length > 0) {
+            baseQuery += " AND " + conditions.join(" AND ");
+            }
+
+            const [rows] = await pool.query(baseQuery, queryParams);
+
+            const enrichedRows = rows.map((row) => {
+            const userIdStr = String(row.user_id);
+            return {
+                ...row,
+                online: onlineUsers.has(userIdStr),
+                last_seen: lastSeenMap.get(userIdStr) || null,
+                status: row.notification_status,
+                connectionRequest: row.connectionRequest === 1 // MySQL may return 1/0
+            };
+            });
+
+            return enrichedRows;
+        } catch (error) {
+            console.error("Error fetching shortlisted matches:", error);
+            throw error;
+        }
     }
-
-    if (conditions.length > 0) {
-      baseQuery += " AND " + conditions.join(" AND ");
-    }
-
-    const [rows] = await pool.query(baseQuery, queryParams);
-
-    const enrichedRows = rows.map((row) => {
-      const userIdStr = String(row.user_id);
-      return {
-        ...row,
-        online: onlineUsers.has(userIdStr),
-        last_seen: lastSeenMap.get(userIdStr) || null,
-        status: row.notification_status,
-        connectionRequest: row.connectionRequest === 1 // MySQL may return 1/0
-      };
-    });
-
-    return enrichedRows;
-  } catch (error) {
-    console.error("Error fetching shortlisted matches:", error);
-    throw error;
-  }
-}
-
 }
 
  module.exports = Matches;

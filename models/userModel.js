@@ -28,7 +28,7 @@ static async create(userData) {
   }
 
   const [result] = await pool.query(
-    'INSERT INTO users (profile_id, first_name, last_name, email, phone, password, dob, religion, education, country, email_verified, phone_verified) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+    'INSERT INTO users (profileId, first_name, last_name, email, phone, password, dob, religion, education, country, email_verified, phone_verified) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
     [nextProfileId, firstName, lastName, email, phone, passwordToStore, dob, religion, qualification, livingIn, email_verified, phone_verified]
   );
   
@@ -1183,8 +1183,49 @@ static async getMyMatches(lookingFor, filters = {}, partnerPrefs = null) {
   }
 }
 
+static async setUserOnlineStatus(userId, isOnline) {
+  try {
+    await pool.query(`
+      UPDATE users
+      SET online_status = ?
+      WHERE id = ?
+    `, [isOnline, userId]);
+  } catch (error) {
+    console.error('Error setting user online status:', error);
+    throw error;
+  }
+}
+
+static async getUserOnlineStatus(userId) {
+  try {
+    const [rows] = await pool.query(`
+      SELECT is_online
+      FROM online_status
+      WHERE user_id = ?
+    `, [userId]);
+    return rows[0] ? rows[0].is_online : null;
+  } catch (error) {
+    console.error('Error fetching user online status:', error);
+    throw error;
+  }
+}
+
+static async getOnlineUsers() {
+  try {
+    const [rows] = await pool.query(`
+      SELECT u.id, u.name, u.email
+      FROM users u
+      JOIN online_status os ON u.id = os.user_id
+      WHERE os.is_online = 1
+    `);
+    return rows;
+  } catch (error) {
+    console.error('Error fetching online users:', error);
+    throw error;
+  }
 }
 
 
+}
 
 module.exports = User;
