@@ -386,24 +386,42 @@ static async updateProfile(userId, profileData) {
     throw error;
   }
 }
-  static async getUsersByLookingFor(lookingFor) {
+  static async getUsersByLookingFor(id, lookingFor) {
   try {
     const [rows] = await pool.query(`
-      SELECT
-        u.id AS user_id,
-        u.first_name,
-        u.last_name,
-        u.email,
-        u.looking_for,
-        u.dob,
-        u.religion,
-        u.education,
-        u.country,
-        p.*
-      FROM users u
-      JOIN profiles p ON u.id = p.user_id
-      WHERE u.looking_for = ?
-    `, [lookingFor]);
+      SELECT u.id AS user_id,
+       u.profileId,
+       u.first_name,
+       u.last_name,
+       u.email,
+       u.looking_for,
+       u.dob,
+       u.religion,
+       u.education,
+       u.country,
+       u.online_status,
+       p.*,
+       CASE 
+           WHEN n.id IS NOT NULL 
+                AND n.sender_user_id = ? 
+                AND n.receiver_user_id = u.id 
+                AND n.status IN ('pending', 'accepted') 
+           THEN true 
+           WHEN n2.id IS NOT NULL
+                AND n2.receiver_user_id = ?
+                AND n2.sender_user_id = u.id
+                AND n2.status IN ('pending', 'accepted')
+           THEN true
+           ELSE false 
+        END AS connectionRequest
+        FROM users u
+        JOIN profiles p ON u.id = p.user_id
+        LEFT JOIN notifications n 
+            ON n.sender_user_id = ? AND n.receiver_user_id = u.id
+        LEFT JOIN notifications n2
+            ON n2.receiver_user_id = ? AND n2.sender_user_id = u.id
+        WHERE u.looking_for = ?
+    `, [id,id,id,id,lookingFor]);
  
     return rows;
   } catch (error) {

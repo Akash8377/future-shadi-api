@@ -25,6 +25,7 @@ const inboxRoutes = require("./routes/inboxRoutes");
 const matchesRoutes = require("./routes/matchesRoutes");
 const galleryRoutes = require("./routes/galleryRoutes");
 const searchRoutes = require("./routes/searchRoutes");
+const geneticMarkersRoutes = require("./routes/geneticMarkersRoutes");
 
 const app = express();
 const server = http.createServer(app);
@@ -48,6 +49,8 @@ app.use("/api/notifications", notificationRoutes);
 app.use("/api/inbox", inboxRoutes);
 app.use("/api/matches", matchesRoutes);
 app.use("/api/search", searchRoutes);
+app.use("/api/dna", geneticMarkersRoutes);
+
 
 // API: Snapshot of online users
 app.get("/api/online-status", (req, res) => {
@@ -225,7 +228,7 @@ io.use((socket, next) => {
 io.on("connection", (socket) => {
   const userId = socket.data.userId;
   console.log(`🔌 Socket connected: ${socket.id} for user ${userId}`);
-  
+  User.setUserOnlineStatus(userId, "online");
   // Join user's personal room
   socket.join(`user_${userId}`);
 
@@ -314,7 +317,7 @@ io.on("connection", (socket) => {
       onlineUsers.delete(userId);
       lastSeenMap.set(userId, formatDateTime(new Date()));
     }
-    
+      User.setUserOnlineStatus(userId, new Date().toISOString());
     console.log(`❌ Socket disconnected: ${socket.id} for user ${userId}`);
   });
 });

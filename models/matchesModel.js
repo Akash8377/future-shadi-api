@@ -242,7 +242,7 @@ class Matches {
     }
     }
 
-    static async getNewMatchesByLookingFor(user_id, lookingFor,nearMe, filters = {}) {
+    static async getNewMatchesByLookingFor(user_id, lookingFor, filters = {}) {
     try {
         let baseQuery = `
         SELECT u.id AS user_id,
@@ -279,9 +279,9 @@ class Matches {
         WHERE u.looking_for = ?
         `;
 
-        const queryParams = [user_id, user_id,user_id, user_id, lookingFor, nearMe];
+        const queryParams = [user_id, user_id,user_id, user_id, lookingFor];
         const conditions = [];
-    
+
         // Process each filter
         for (const [key, values] of Object.entries(filters)) {
         if (!values || values.length === 0) continue;
@@ -365,7 +365,11 @@ class Matches {
         if (conditions.length > 0) {
         baseQuery += ' AND ' + conditions.join(' AND ');
         }
-    
+        // let formatted = baseQuery;
+        // queryParams.forEach((param) => {
+        //     formatted = formatted.replace('?', typeof param === 'string' ? `'${param}'` : param);
+        // });
+        // console.log("New Matches executed query: ", formatted);
         const [rows] = await pool.query(baseQuery, queryParams);
         return rows;
     } catch (error) {
@@ -408,12 +412,12 @@ class Matches {
             ON n.sender_user_id = ? AND n.receiver_user_id = u.id
         LEFT JOIN notifications n2
             ON n2.receiver_user_id = ? AND n2.sender_user_id = u.id
-        WHERE u.looking_for = ?
+        WHERE u.looking_for = ? AND p.city = ?
         `;
 
         const queryParams = [user_id, user_id,user_id, user_id,lookingFor, nearMe];
         const conditions = [];
-    
+        console.log("Near me New Matches filters: ", filters);
         // Process each filter
         for (const [key, values] of Object.entries(filters)) {
         if (!values || values.length === 0) continue;
@@ -435,7 +439,6 @@ class Matches {
             break;
             
             case 'recentlyJoined':
-            // Only one value for radio buttons
             const days = parseInt(values[0]);
             if (!isNaN(days)) {
                 conditions.push(`p.created_at >= DATE_SUB(NOW(), INTERVAL ? DAY)`);

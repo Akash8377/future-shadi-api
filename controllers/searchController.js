@@ -36,7 +36,7 @@ exports.searchProfiles = async (req, res) => {
         message: "Invalid or missing 'looking_for' parameter (must be 'Bride' or 'Groom')"
       });
     }
-
+    const user_id = req.user?.id;
     // Build the base query
     let baseQuery = `
       SELECT 
@@ -49,13 +49,30 @@ exports.searchProfiles = async (req, res) => {
         u.religion,
         u.education,
         u.country,
-        p.*
+        p.*,
+        CASE 
+           WHEN n.id IS NOT NULL 
+                AND n.sender_user_id = ? 
+                AND n.receiver_user_id = u.id 
+                AND n.status IN ('pending', 'accepted') 
+           THEN true 
+           WHEN n2.id IS NOT NULL
+                AND n2.receiver_user_id = ?
+                AND n2.sender_user_id = u.id
+                AND n2.status IN ('pending', 'accepted')
+           THEN true
+           ELSE false 
+        END AS connectionRequest
       FROM users u
       JOIN profiles p ON u.id = p.user_id
+      LEFT JOIN notifications n 
+            ON n.sender_user_id = ? AND n.receiver_user_id = u.id
+        LEFT JOIN notifications n2
+            ON n2.receiver_user_id = ? AND n2.sender_user_id = u.id
       WHERE u.looking_for = ?
     `;
 
-    const queryParams = [looking_for];
+    const queryParams = [user_id,user_id,user_id,user_id,looking_for];
     const conditions = [];
 
     // Age filter
@@ -260,7 +277,8 @@ exports.searchProfilesFilter = async (req, res) => {
         message: "Invalid or missing 'looking_for' parameter (must be 'Bride' or 'Groom')"
       });
     }
-
+    const user_id = req.user?.id;
+    // const user_id = req.user?.id;
     let baseQuery = `
       SELECT 
         u.id AS user_id,
@@ -272,13 +290,30 @@ exports.searchProfilesFilter = async (req, res) => {
         u.religion,
         u.education,
         u.country,
-        p.*
+        p.*,
+        CASE 
+           WHEN n.id IS NOT NULL 
+                AND n.sender_user_id = ? 
+                AND n.receiver_user_id = u.id 
+                AND n.status IN ('pending', 'accepted') 
+           THEN true 
+           WHEN n2.id IS NOT NULL
+                AND n2.receiver_user_id = ?
+                AND n2.sender_user_id = u.id
+                AND n2.status IN ('pending', 'accepted')
+           THEN true
+           ELSE false 
+        END AS connectionRequest
       FROM users u
       JOIN profiles p ON u.id = p.user_id
+      LEFT JOIN notifications n 
+            ON n.sender_user_id = ? AND n.receiver_user_id = u.id
+        LEFT JOIN notifications n2
+            ON n2.receiver_user_id = ? AND n2.sender_user_id = u.id
       WHERE u.looking_for = ?
     `;
 
-    const queryParams = [looking_for];
+    const queryParams = [user_id,user_id,user_id,user_id,looking_for];
     const conditions = [];
 
     if (ageFrom && ageTo) {
@@ -297,6 +332,14 @@ exports.searchProfilesFilter = async (req, res) => {
         }
         return null;
       };
+
+      if (recentlyJoined) {
+            const days = parseInt(recentlyJoined[0]);
+            if (!isNaN(days)) {
+                conditions.push(`p.created_at >= DATE_SUB(NOW(), INTERVAL ? DAY)`);
+                queryParams.push(days);
+            }
+        }
 
       const minInches = parseHeightToInches(heightFrom);
       const maxInches = parseHeightToInches(heightTo);
@@ -453,13 +496,30 @@ exports.searchProfileId = async (req, res) => {
         u.education,
         u.country,
         u.profileId,
-        p.*
+        p.*,
+        CASE 
+           WHEN n.id IS NOT NULL 
+                AND n.sender_user_id = ? 
+                AND n.receiver_user_id = u.id 
+                AND n.status IN ('pending', 'accepted') 
+           THEN true 
+           WHEN n2.id IS NOT NULL
+                AND n2.receiver_user_id = ?
+                AND n2.sender_user_id = u.id
+                AND n2.status IN ('pending', 'accepted')
+           THEN true
+           ELSE false 
+        END AS connectionRequest
       FROM users u
       JOIN profiles p ON u.id = p.user_id
+      LEFT JOIN notifications n 
+            ON n.sender_user_id = ? AND n.receiver_user_id = u.id
+      LEFT JOIN notifications n2
+            ON n2.receiver_user_id = ? AND n2.sender_user_id = u.id
       WHERE u.profileId = ?
     `;
-
-    const queryParams = [profileId];    
+    const user_id = req.user?.id;
+    const queryParams = [user_id,user_id,user_id,user_id,profileId];    
     // Execute the query
     const [profile] = await pool.query(baseQuery, queryParams);
     

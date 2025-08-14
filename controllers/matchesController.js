@@ -37,7 +37,6 @@ exports.myMatches  = async (req, res) => {
       }
     }
  
-    console.log(parsedPreference, "parsedPreference");
     const users = await Matches.getMyMatches(
       user_id,
       looking_for,
@@ -62,20 +61,14 @@ exports.newMatches = async (req, res) => {
     const processedFilters = {};
  
     for (let [key, value] of Object.entries(filters)) {
-      // Remove brackets from keys like verificationStatus[]
       key = key.replace(/\[\]$/, '');
- 
-      // Convert comma-separated strings to arrays
       if (typeof value === 'string') {
         value = value.split(',');
       }
- 
-      // Ignore "all"
       if (value.includes('all')) continue;
- 
       processedFilters[key] = value;
     }
- 
+    console.log("Processed Filters new matches :", processedFilters);
     const users = await Matches.getNewMatchesByLookingFor(user_id, looking_for, processedFilters);
     return res.status(200).json({ success: true, users });
   } catch (error) {
@@ -108,7 +101,7 @@ exports.newMatchesNearMe = async (req, res) => {
     }
 
 
-    const users = await Matches.getNewMatchesByNearMe(user_id,looking_for, nearMe, processedFilters);
+    const users = await Matches.getNewMatchesByNearMe(user_id, looking_for, nearMe, processedFilters);
     return res.status(200).json({ success: true, users });
   } catch (error) {
     console.error("Error fetching new matches by looking_for:", error);
@@ -136,7 +129,6 @@ exports.getShortlisted = async (req, res) => {
 
       processedFilters[key] = value;
     }
-
     const users = await Matches.getShortlisted(looking_for, processedFilters, user_id);
     return res.status(200).json({ success: true, users });
   } catch (error) {

@@ -5,9 +5,9 @@ const authMiddleware = require('../middlewares/authMiddleware');
 
 // Add this new route
 router.get("/search-profiles", authMiddleware, searchController.searchProfiles);
-router.post("/search-profiles-filter", searchController.searchProfilesFilter);
+router.post("/search-profiles-filter",authMiddleware, searchController.searchProfilesFilter);
 // Change from POST to GET since you're using axios.get in the frontend
-router.get("/search-by-profileId/:profileId", searchController.searchProfileId);
+router.get("/search-by-profileId/:profileId",authMiddleware, searchController.searchProfileId);
 
 // In your routes file
 router.get("/recent-searches", authMiddleware, searchController.getRecentSearches);

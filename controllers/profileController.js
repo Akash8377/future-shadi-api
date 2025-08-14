@@ -568,13 +568,13 @@ exports.updateProfile = async (req, res) => {
 
 exports.getUsersByLookingFor = async (req, res) => {
   try {
-    const { looking_for } = req.query;
+    const {id, looking_for } = req.query;
  
     if (!looking_for || !['Bride', 'Groom'].includes(looking_for)) {
       return res.status(400).json({ message: "Invalid 'looking_for' value" });
     }
- 
-    const users = await User.getUsersByLookingFor(looking_for);
+
+    const users = await User.getUsersByLookingFor(id, looking_for);
     return res.status(200).json({ success: true, users });
   } catch (error) {
     console.error("Error fetching users by looking_for:", error);
