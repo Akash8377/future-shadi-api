@@ -48,6 +48,7 @@ exports.registerProfile = async (req, res) => {
       motherTongue,
       email_verified = 1,
       phone_verified = 0,
+      lookingFor
     } = req.body;
 
     // Check if user exists
@@ -76,6 +77,7 @@ exports.registerProfile = async (req, res) => {
       birthYear,
       email_verified,
       phone_verified,
+      lookingFor
     };
 
     const userId = await User.create(userData);

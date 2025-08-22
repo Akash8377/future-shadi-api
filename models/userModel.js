@@ -3,7 +3,7 @@ const bcrypt = require("bcryptjs");
 
 class User {
 static async create(userData) {
-  const { firstName, lastName, email, phone, password, religion, qualification, livingIn, birthDay, birthMonth, birthYear, email_verified, phone_verified } = userData;
+  const { firstName, lastName, email, phone, password, religion, qualification, livingIn, birthDay, birthMonth, birthYear, email_verified, phone_verified, lookingFor } = userData;
 
   // Construct proper MySQL DATE format (YYYY-MM-DD)
   const dob = birthYear && birthMonth && birthDay 
@@ -28,8 +28,8 @@ static async create(userData) {
   }
 
   const [result] = await pool.query(
-    'INSERT INTO users (profileId, first_name, last_name, email, phone, password, dob, religion, education, country, email_verified, phone_verified) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
-    [nextProfileId, firstName, lastName, email, phone, passwordToStore, dob, religion, qualification, livingIn, email_verified, phone_verified]
+    'INSERT INTO users (profileId, first_name, last_name, email, phone, password, dob, religion, education, country, email_verified, phone_verified, looking_for) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+    [nextProfileId, firstName, lastName, email, phone, passwordToStore, dob, religion, qualification, livingIn, email_verified, phone_verified, lookingFor]
   );
   
    return result.insertId
